@@ -95,3 +95,17 @@ async def test_collect_trivial_sample_returns_active_requests_and_server_time() 
 
     assert sample.active_session_count == 2
     assert sample.server_time == server_time
+
+
+@pytest.mark.asyncio
+async def test_collect_active_sessions_raises_not_implemented() -> None:
+    """Phase 1 element 1, SQL Server slice: explicitly deferred, not silently empty."""
+    with pytest.raises(NotImplementedError):
+        await SqlServerEngineAdapter().collect_active_sessions(PARAMS)
+
+
+@pytest.mark.asyncio
+async def test_collect_query_stats_raises_not_implemented() -> None:
+    """Phase 1 element 2, SQL Server slice: explicitly deferred, not silently empty."""
+    with pytest.raises(NotImplementedError):
+        await SqlServerEngineAdapter().collect_query_stats(PARAMS)

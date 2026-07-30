@@ -3,6 +3,7 @@
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock, patch
 
+import asyncpg
 import pytest
 
 from app.modules.monitoring.adapters.postgres_adapter import PostgresEngineAdapter
@@ -66,3 +67,166 @@ async def test_connection_is_closed_even_when_query_fails() -> None:
             await PostgresEngineAdapter().detect_capabilities(PARAMS)
 
     conn.close.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_collect_active_sessions_maps_wait_state_and_query_key() -> None:
+    conn = AsyncMock()
+    conn.fetch = AsyncMock(
+        return_value=[
+            {
+                "db_user": "app",
+                "application_name": "billing-service",
+                "client_host": "10.0.0.5",
+                "wait_event_type": "Lock",
+                "wait_event": "relation",
+                "query": "SELECT * FROM accounts WHERE id = $1",
+                "engine_query_key": "123456789",
+            },
+            {
+                "db_user": "app",
+                "application_name": "billing-service",
+                "client_host": "10.0.0.5",
+                "wait_event_type": None,
+                "wait_event": None,
+                "query": "UPDATE accounts SET balance = balance - 1 WHERE id = $1",
+                "engine_query_key": "987654321",
+            },
+        ]
+    )
+    conn.close = AsyncMock()
+
+    with patch("app.modules.monitoring.adapters.postgres_adapter.asyncpg.connect", AsyncMock(return_value=conn)):
+        sessions = await PostgresEngineAdapter().collect_active_sessions(PARAMS)
+
+    assert len(sessions) == 2
+    assert sessions[0].wait_event_type == "Lock"
+    assert sessions[0].wait_event == "relation"
+    assert sessions[0].engine_query_key == "123456789"
+    # On-CPU session: no wait event at all, not classified as idle.
+    assert sessions[1].wait_event_type is None
+    assert sessions[1].wait_event is None
+    conn.close.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_collect_active_sessions_falls_back_when_query_id_column_missing() -> None:
+    conn = AsyncMock()
+    conn.fetch = AsyncMock(
+        side_effect=[
+            asyncpg.exceptions.UndefinedColumnError('column "query_id" does not exist'),
+            [
+                {
+                    "db_user": "app",
+                    "application_name": "",
+                    "client_host": "",
+                    "wait_event_type": None,
+                    "wait_event": None,
+                    "query": "SELECT 1",
+                    "engine_query_key": None,
+                }
+            ],
+        ]
+    )
+    conn.close = AsyncMock()
+
+    with patch("app.modules.monitoring.adapters.postgres_adapter.asyncpg.connect", AsyncMock(return_value=conn)):
+        sessions = await PostgresEngineAdapter().collect_active_sessions(PARAMS)
+
+    assert len(sessions) == 1
+    assert sessions[0].engine_query_key is None
+    assert conn.fetch.await_count == 2
+
+
+@pytest.mark.asyncio
+async def test_collect_query_stats_returns_empty_when_extension_not_installed() -> None:
+    conn = AsyncMock()
+    conn.fetchval = AsyncMock(return_value=0)
+    conn.close = AsyncMock()
+
+    with patch("app.modules.monitoring.adapters.postgres_adapter.asyncpg.connect", AsyncMock(return_value=conn)):
+        stats = await PostgresEngineAdapter().collect_query_stats(PARAMS)
+
+    assert stats == []
+    conn.close.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_collect_wait_sampling_history_returns_empty_batch_when_extension_missing() -> None:
+    conn = AsyncMock()
+    conn.fetchval = AsyncMock(return_value=0)
+    conn.close = AsyncMock()
+
+    with patch("app.modules.monitoring.adapters.postgres_adapter.asyncpg.connect", AsyncMock(return_value=conn)):
+        batch = await PostgresEngineAdapter().collect_wait_sampling_history(PARAMS, since=None)
+
+    assert batch.rows == []
+    assert batch.history_period_ms is None
+    assert batch.ring_buffer_min_ts is None
+    conn.fetch.assert_not_called()
+    conn.close.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_collect_wait_sampling_history_maps_rows_and_metadata() -> None:
+    ring_min_ts = datetime(2026, 7, 30, 12, 0, 0, tzinfo=UTC)
+    sample_ts = datetime(2026, 7, 30, 12, 0, 30, tzinfo=UTC)
+    conn = AsyncMock()
+    conn.fetchval = AsyncMock(side_effect=[1, 10, ring_min_ts])  # installed, history_period_ms, ring_buffer_min_ts
+    conn.fetch = AsyncMock(
+        return_value=[
+            {
+                "pid": 5690,
+                "ts": sample_ts,
+                "event_type": "Lock",
+                "event": "transactionid",
+                "engine_query_key": "42",
+                "db_user": "app",
+                "application_name": "billing-service",
+                "client_host": "10.0.0.5",
+                "query_text": "UPDATE accounts SET balance = balance - 1 WHERE id = $1",
+            }
+        ]
+    )
+    conn.close = AsyncMock()
+
+    with patch("app.modules.monitoring.adapters.postgres_adapter.asyncpg.connect", AsyncMock(return_value=conn)):
+        batch = await PostgresEngineAdapter().collect_wait_sampling_history(PARAMS, since=ring_min_ts)
+
+    assert batch.history_period_ms == 10
+    assert batch.ring_buffer_min_ts == ring_min_ts
+    assert len(batch.rows) == 1
+    assert batch.rows[0].pid == 5690
+    assert batch.rows[0].wait_event_type == "Lock"
+    assert batch.rows[0].engine_query_key == "42"
+    # `since` is passed through to the query as the sole positional bind param.
+    assert conn.fetch.await_args.args[1] == ring_min_ts
+    conn.close.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_collect_query_stats_maps_cumulative_counters() -> None:
+    conn = AsyncMock()
+    conn.fetchval = AsyncMock(return_value=1)
+    conn.fetch = AsyncMock(
+        return_value=[
+            {
+                "engine_query_key": "42",
+                "normalized_text": "SELECT * FROM accounts WHERE id = $1",
+                "calls": 100,
+                "total_time_ms": 543.2,
+                "rows": 100,
+                "shared_blks_read": 10,
+                "shared_blks_written": 0,
+            }
+        ]
+    )
+    conn.close = AsyncMock()
+
+    with patch("app.modules.monitoring.adapters.postgres_adapter.asyncpg.connect", AsyncMock(return_value=conn)):
+        stats = await PostgresEngineAdapter().collect_query_stats(PARAMS)
+
+    assert len(stats) == 1
+    assert stats[0].engine_query_key == "42"
+    assert stats[0].calls == 100
+    assert stats[0].total_time_ms == 543.2

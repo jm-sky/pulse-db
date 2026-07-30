@@ -7,7 +7,9 @@ go through `text()` rather than the ORM.
 
 from __future__ import annotations
 
+import hashlib
 import json
+import re
 from dataclasses import dataclass
 from datetime import datetime
 
@@ -19,6 +21,25 @@ from app.core.database import AsyncSessionLocal
 
 from .crypto import decrypt_secret, encrypt_secret
 from .engine_adapter import Engine, EngineCapabilities, InstanceConnectionParams
+
+_WHITESPACE_RE = re.compile(r"\s+")
+
+
+def normalize_query_text(raw_text: str) -> str:
+    """Collapse whitespace so semantically-identical query text hashes the same.
+
+    Deliberately *not* a literal-stripping normalizer (ADR §10 risk: "nie
+    piszemy własnej [normalizacji] od zera" -- the engine already does that
+    via pg_stat_statements/Query Store). This only smooths formatting noise
+    on top of text that's ideally already engine-normalized; it's also used
+    as the interim fallback when a session's query hasn't appeared in
+    pg_stat_statements yet (query still running, first execution).
+    """
+    return _WHITESPACE_RE.sub(" ", raw_text).strip()
+
+
+def compute_norm_hash(normalized_text: str) -> str:
+    return hashlib.sha256(normalized_text.encode("utf-8")).hexdigest()
 
 
 @dataclass(frozen=True, slots=True)
@@ -133,17 +154,22 @@ async def update_capabilities(session: AsyncSession, instance_id: str, capabilit
     )
 
 
-async def get_last_collector_run(session: AsyncSession, instance_id: str) -> tuple[datetime | None, int | None]:
-    """Return (finished_at, interval_ms) of the most recent run, or (None, None)."""
+async def get_last_collector_run(session: AsyncSession, instance_id: str, kind: str = "trivial") -> tuple[datetime | None, int | None]:
+    """Return (finished_at, interval_ms) of the most recent run of this kind, or (None, None).
+
+    `kind` matters (migration 070): a 1s-cadence session sampler and a 60s
+    trivial/query-stats tick must each compare against their own last run,
+    not each other's, or gap detection misfires.
+    """
     result = await session.execute(
         text("""
             SELECT finished_at, interval_ms
             FROM collector_run
-            WHERE instance_id = :instance_id AND finished_at IS NOT NULL
+            WHERE instance_id = :instance_id AND kind = :kind AND finished_at IS NOT NULL
             ORDER BY started_at DESC
             LIMIT 1
             """),
-        {"instance_id": instance_id},
+        {"instance_id": instance_id, "kind": kind},
     )
     row = result.first()
     if row is None:
@@ -155,6 +181,7 @@ async def insert_collector_run(
     session: AsyncSession,
     *,
     instance_id: str,
+    kind: str,
     started_at: datetime,
     finished_at: datetime | None,
     status: str,
@@ -169,15 +196,16 @@ async def insert_collector_run(
     await session.execute(
         text("""
             INSERT INTO collector_run
-                (id, instance_id, started_at, finished_at, status, interval_ms, overhead_ms,
+                (id, instance_id, kind, started_at, finished_at, status, interval_ms, overhead_ms,
                  clock_offset_ms, gap_detected, gap_seconds, error_message)
             VALUES
-                (:id, :instance_id, :started_at, :finished_at, :status, :interval_ms, :overhead_ms,
+                (:id, :instance_id, :kind, :started_at, :finished_at, :status, :interval_ms, :overhead_ms,
                  :clock_offset_ms, :gap_detected, :gap_seconds, :error_message)
             """),
         {
             "id": run_id,
             "instance_id": instance_id,
+            "kind": kind,
             "started_at": started_at,
             "finished_at": finished_at,
             "status": status,
@@ -200,3 +228,284 @@ async def insert_instance_metric(session: AsyncSession, *, instance_id: str, sam
             """),
         {"id": generate_id(), "instance_id": instance_id, "sampled_at": sampled_at, "metric_id": metric_id, "value": value},
     )
+
+
+# --- Phase 1 element 1/2: query identity, sessions, query stats ------------
+
+
+async def upsert_query(session: AsyncSession, *, instance_id: str, engine: Engine, engine_query_key: str, normalized_text: str) -> str:
+    """Upsert `query_text` (by content hash) + `query` (by native identity), return `query.id`.
+
+    Two-step upsert mirrors ADR §5's two-level identity: `query_text.norm_hash`
+    is content-addressed and shared across instances/engines when the text
+    matches; `query.engine_query_key` is per-instance native identity that
+    can change (version upgrade, stats reset) without breaking the link to
+    history, because it's `norm_hash` that ties old and new rows together.
+    """
+    norm_hash = compute_norm_hash(normalized_text)
+    await session.execute(
+        text("""
+            INSERT INTO query_text (norm_hash, normalized_text)
+            VALUES (:norm_hash, :normalized_text)
+            ON CONFLICT (norm_hash) DO NOTHING
+            """),
+        {"norm_hash": norm_hash, "normalized_text": normalized_text},
+    )
+
+    result = await session.execute(
+        text("""
+            INSERT INTO query (id, instance_id, engine, engine_query_key, norm_hash)
+            VALUES (:id, :instance_id, :engine, :engine_query_key, :norm_hash)
+            ON CONFLICT (instance_id, engine_query_key)
+                DO UPDATE SET last_seen = now(), norm_hash = EXCLUDED.norm_hash
+            RETURNING id
+            """),
+        {
+            "id": generate_id(),
+            "instance_id": instance_id,
+            "engine": engine.value,
+            "engine_query_key": engine_query_key,
+            "norm_hash": norm_hash,
+        },
+    )
+    return str(result.scalar_one())
+
+
+async def find_query_id_by_engine_key(session: AsyncSession, *, instance_id: str, engine_query_key: str) -> str | None:
+    result = await session.execute(
+        text("SELECT id FROM query WHERE instance_id = :instance_id AND engine_query_key = :engine_query_key"),
+        {"instance_id": instance_id, "engine_query_key": engine_query_key},
+    )
+    row = result.first()
+    return row.id if row else None
+
+
+async def ensure_wait_event(session: AsyncSession, *, engine: Engine, native_name: str) -> bool:
+    """Return `is_idle` for (engine, native_name), auto-registering unknown natives as `other`.
+
+    ADR §5: "Nieznany wait natywny wpada do Other z zachowaną nazwą i nie
+    psuje zbierania" -- an engine/PG-version wait name we haven't seeded
+    (migration 068) must never block a sample from being written.
+    """
+    result = await session.execute(
+        text("SELECT is_idle FROM wait_event WHERE engine = :engine AND native_name = :native_name"),
+        {"engine": engine.value, "native_name": native_name},
+    )
+    row = result.first()
+    if row is not None:
+        return bool(row.is_idle)
+
+    await session.execute(
+        text("""
+            INSERT INTO wait_event (engine, native_name, wait_class_id, is_idle)
+            VALUES (:engine, :native_name, 'other', FALSE)
+            ON CONFLICT (engine, native_name) DO NOTHING
+            """),
+        {"engine": engine.value, "native_name": native_name},
+    )
+    return False
+
+
+async def upsert_session_attr(session: AsyncSession, *, instance_id: str, db_user: str, program: str, client_host: str) -> str:
+    result = await session.execute(
+        text("""
+            INSERT INTO session_attr (id, instance_id, db_user, program, client_host)
+            VALUES (:id, :instance_id, :db_user, :program, :client_host)
+            ON CONFLICT (instance_id, db_user, program, client_host)
+                DO UPDATE SET db_user = EXCLUDED.db_user
+            RETURNING id
+            """),
+        {
+            "id": generate_id(),
+            "instance_id": instance_id,
+            "db_user": db_user,
+            "program": program,
+            "client_host": client_host,
+        },
+    )
+    return str(result.scalar_one())
+
+
+async def insert_session_sample(
+    session: AsyncSession,
+    *,
+    instance_id: str,
+    sampled_at: datetime,
+    interval_ms: int,
+    query_id: str | None,
+    wait_event_engine: str | None,
+    wait_event_native_name: str | None,
+    session_attr_id: str,
+    is_idle: bool,
+) -> None:
+    await session.execute(
+        text("""
+            INSERT INTO session_sample
+                (id, instance_id, sampled_at, interval_ms, query_id, wait_event_engine,
+                 wait_event_native_name, session_attr_id, is_idle)
+            VALUES
+                (:id, :instance_id, :sampled_at, :interval_ms, :query_id, :wait_event_engine,
+                 :wait_event_native_name, :session_attr_id, :is_idle)
+            """),
+        {
+            "id": generate_id(),
+            "instance_id": instance_id,
+            "sampled_at": sampled_at,
+            "interval_ms": interval_ms,
+            "query_id": query_id,
+            "wait_event_engine": wait_event_engine,
+            "wait_event_native_name": wait_event_native_name,
+            "session_attr_id": session_attr_id,
+            "is_idle": is_idle,
+        },
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class QueryStatCursor:
+    last_calls: int
+    last_total_time_ms: float
+    last_rows: int
+    last_shared_blks_read: int
+    last_shared_blks_written: int
+
+
+async def get_query_stat_cursor(session: AsyncSession, *, instance_id: str, engine_query_key: str) -> QueryStatCursor | None:
+    result = await session.execute(
+        text("""
+            SELECT last_calls, last_total_time_ms, last_rows, last_shared_blks_read, last_shared_blks_written
+            FROM query_stat_cursor
+            WHERE instance_id = :instance_id AND engine_query_key = :engine_query_key
+            """),
+        {"instance_id": instance_id, "engine_query_key": engine_query_key},
+    )
+    row = result.first()
+    if row is None:
+        return None
+    return QueryStatCursor(
+        last_calls=row.last_calls,
+        last_total_time_ms=row.last_total_time_ms,
+        last_rows=row.last_rows,
+        last_shared_blks_read=row.last_shared_blks_read,
+        last_shared_blks_written=row.last_shared_blks_written,
+    )
+
+
+async def upsert_query_stat_cursor(
+    session: AsyncSession,
+    *,
+    instance_id: str,
+    engine_query_key: str,
+    calls: int,
+    total_time_ms: float,
+    rows: int,
+    shared_blks_read: int,
+    shared_blks_written: int,
+) -> None:
+    await session.execute(
+        text("""
+            INSERT INTO query_stat_cursor
+                (instance_id, engine_query_key, last_calls, last_total_time_ms, last_rows,
+                 last_shared_blks_read, last_shared_blks_written, updated_at)
+            VALUES
+                (:instance_id, :engine_query_key, :calls, :total_time_ms, :rows,
+                 :shared_blks_read, :shared_blks_written, now())
+            ON CONFLICT (instance_id, engine_query_key) DO UPDATE SET
+                last_calls = EXCLUDED.last_calls,
+                last_total_time_ms = EXCLUDED.last_total_time_ms,
+                last_rows = EXCLUDED.last_rows,
+                last_shared_blks_read = EXCLUDED.last_shared_blks_read,
+                last_shared_blks_written = EXCLUDED.last_shared_blks_written,
+                updated_at = now()
+            """),
+        {
+            "instance_id": instance_id,
+            "engine_query_key": engine_query_key,
+            "calls": calls,
+            "total_time_ms": total_time_ms,
+            "rows": rows,
+            "shared_blks_read": shared_blks_read,
+            "shared_blks_written": shared_blks_written,
+        },
+    )
+
+
+async def insert_query_stat_delta(
+    session: AsyncSession,
+    *,
+    instance_id: str,
+    query_id: str,
+    bucket_start: datetime,
+    calls: int,
+    total_time_ms: float,
+    rows_returned: int,
+    shared_blks_read: int,
+    shared_blks_written: int,
+) -> None:
+    await session.execute(
+        text("""
+            INSERT INTO query_stat_delta
+                (id, instance_id, query_id, bucket_start, calls, total_time_ms, rows_returned,
+                 shared_blks_read, shared_blks_written)
+            VALUES
+                (:id, :instance_id, :query_id, :bucket_start, :calls, :total_time_ms, :rows_returned,
+                 :shared_blks_read, :shared_blks_written)
+            """),
+        {
+            "id": generate_id(),
+            "instance_id": instance_id,
+            "query_id": query_id,
+            "bucket_start": bucket_start,
+            "calls": calls,
+            "total_time_ms": total_time_ms,
+            "rows_returned": rows_returned,
+            "shared_blks_read": shared_blks_read,
+            "shared_blks_written": shared_blks_written,
+        },
+    )
+
+
+# --- Phase 1 element 1, richer source: pg_wait_sampling_history -----------
+
+
+async def get_wait_sampling_watermark(session: AsyncSession, *, instance_id: str) -> datetime | None:
+    result = await session.execute(
+        text("SELECT last_ts FROM wait_sampling_cursor WHERE instance_id = :instance_id"),
+        {"instance_id": instance_id},
+    )
+    row = result.first()
+    return row.last_ts if row else None
+
+
+async def set_wait_sampling_watermark(session: AsyncSession, *, instance_id: str, last_ts: datetime) -> None:
+    await session.execute(
+        text("""
+            INSERT INTO wait_sampling_cursor (instance_id, last_ts, updated_at)
+            VALUES (:instance_id, :last_ts, now())
+            ON CONFLICT (instance_id) DO UPDATE SET last_ts = EXCLUDED.last_ts, updated_at = now()
+            """),
+        {"instance_id": instance_id, "last_ts": last_ts},
+    )
+
+
+async def get_latest_clock_offset_ms(session: AsyncSession, *, instance_id: str) -> float | None:
+    """Most recent measured `clock_offset_ms` for this instance (any collector_run kind).
+
+    Used to translate monitored-instance-clock timestamps (e.g.
+    `pg_wait_sampling_history.ts`) back to PulseDB's authoritative clock
+    (ADR §9: "Zegarem autorytatywnym jest zegar PulseDB, nie monitorowanej
+    bazy" -- but engine-origin timestamps are still translatable after the
+    fact once the offset is known).
+    """
+    result = await session.execute(
+        text("""
+            SELECT clock_offset_ms
+            FROM collector_run
+            WHERE instance_id = :instance_id AND clock_offset_ms IS NOT NULL
+            ORDER BY started_at DESC
+            LIMIT 1
+            """),
+        {"instance_id": instance_id},
+    )
+    row = result.first()
+    return row.clock_offset_ms if row else None

@@ -52,11 +52,20 @@ mimo że roadmapa i CLAUDE.md zakładały zielone CI — potwierdzone przez
 faktyczny stan workflow (`Pytest (testy)` na commitcie `9b10ab0` = `failure`).
 Naprawiono usuwając martwy import/route; patrz [issue 004](../issues/2026-07-30--004--dead-logs-import-broke-ci-pytest.md).
 
+## Iteracja 2026-07-30 (b): dokumentacja grantów + FAQ licencyjne
+
+Dwa z czterech pozostałych punktów poniżej domknięte bez zmian w kodzie
+domenowym:
+
+- **Dokumentacja minimalnych grantów per silnik** (roadmap element 9, druga połowa) — [docs/grants.md](../grants.md): `CREATE ROLE` + `GRANT pg_monitor` dla PostgreSQL, `CREATE LOGIN`/`CREATE USER` + `GRANT VIEW SERVER STATE`/`VIEW DATABASE STATE` dla SQL Server, plus tabela rozszerzeń opcjonalnych (`pg_stat_statements`/`pg_wait_sampling`/`hypopg`) i krok weryfikacji przez `cli monitoring detect-capabilities`. Treść oparta bezpośrednio na `_RELEVANT_ROLES`/`_RELEVANT_PERMISSIONS` z adapterów, żeby nie rozjechać się z kodem.
+- **FAQ licencyjne** (roadmap element 2, wymóg §6 vision) — [docs/licensing-faq.md](../licensing-faq.md): użycie wewnętrzne (nawet zmodyfikowane) nie rodzi obowiązku publikacji; scenariusz MSP/hostingu dla klientów aktywuje klauzulę sieciową; split licencyjny CLI/SDK/MCP jawnie oznaczony jako nierozstrzygnięty ADR, nie fakt.
+
+`docs/roadmap.md` §3 zaktualizowane (oba wiersze z ❌/🟡 na ✅).
+
 ## Co zostaje
 
-- **Rollupy 1 min/1 h z watermarkiem i top-N+other** (ADR §6, roadmap element 7) — nie zaczęte w tej iteracji. Wymaga danych z realnego samplera (Faza 1) żeby sensownie przetestować kardynalność; szkielet tabel faktów jest gotowy pod to.
+- **Rollupy 1 min/1 h z watermarkiem i top-N+other** (ADR §6, roadmap element 7) — nie zaczęte. Blokada częściowo zdjęta: [plan Fazy 1](2026-07-30-phase1-diagnostic-core.md) dostarczył realne dane w `session_sample`/`query_stat_delta` (self-monitoring, zweryfikowane end-to-end), więc kardynalność da się już testować na czymś realnym, nie tylko syntetycznym. Implementacja rollupów wciąż nie zaczęta.
 - **Walidacja `SqlServerEngineAdapter` na żywej instancji SQL Server** — brak dostępnego SQL Servera w tym środowisku i w CI. Logika DMV/`HAS_PERMS_BY_NAME` jest napisana i pokryta testami z mockami, ale nieprzetestowana end-to-end. Ryzyko: nazwy kolumn/typy zwracane przez `pytds` mogą się różnić od założeń.
-- **Dokumentacja minimalnych grantów per silnik** (roadmap element 9, druga połowa) — kod wykrywa `pg_monitor`/`VIEW SERVER STATE`/`VIEW DATABASE STATE`, ale nie ma jeszcze spisanej dokumentacji operatorskiej "jak nadać te uprawnienia".
 - **Harmonogram/scheduler** dla kolektora — dziś uruchamiany ręcznie przez CLI (`cli monitoring collect`), nie ma jeszcze pętli/cron w aplikacji. Roadmap Faza 0 element 8 mówi o "harmonogramie" jako części runtime'u kolektora; to zostaje do momentu, gdy jest więcej niż jedna instancja do obsługi w praktyce.
 - ~~CI: `Frontend` → `Type check` czerwony na `develop`~~ — poza pierwotnym zakresem tej iteracji, ale naprawione przy okazji ([issue 005](../issues/2026-07-30--005--frontend-typecheck-red-on-develop.md)): brakujący `src/lib/` (`cn`, `copyToClipboard`, `valueUpdater`) i `requiresTwoFactorVerification`.
 

@@ -9,6 +9,8 @@ Ten katalog zawiera dokumentację robocza projektu PulseDB — patrz też [READM
 | [vision.md](./vision.md) | Pozycjonowanie, ICP, zasady produktu, non-goals, licencja, kill criteria | `verification needed` |
 | [roadmap.md](./roadmap.md) | Fazy 0a–4, kryteria wyjścia, harmonogram, reguła cięcia | `verification needed` |
 | `prd.md` | Persony, JTBD, wymagania funkcjonalne, kryteria akceptacji | *do napisania (Faza 0a)* |
+| [grants.md](./grants.md) | Minimalne uprawnienia konta kolektora per silnik (PostgreSQL/SQL Server) | `verification needed` |
+| [licensing-faq.md](./licensing-faq.md) | FAQ licencyjne AGPLv3 — użycie wewnętrzne vs klauzula sieciowa | `verification needed` |
 
 Te dokumenty są **nadrzędne** wobec `plans/` — plan sprzeczny z `vision.md` wymaga najpierw zmiany wizji.
 

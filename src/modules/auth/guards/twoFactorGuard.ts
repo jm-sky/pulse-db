@@ -1,7 +1,7 @@
 import { AuthRoutePaths } from '@/modules/auth/config/routes'
-// modules/auth/guards/twoFactorGuard.ts
-import { requiresTwoFactorVerification } from '@/modules/auth/lib/jwtDecoder'
 import { useAuthStore } from '@/modules/auth/store/useAuthStore'
+// modules/auth/guards/twoFactorGuard.ts
+import { requiresTwoFactorVerification } from '@/shared/utils/jwtDecoder'
 import type { NavigationGuardNext, RouteLocationNormalized, Router } from 'vue-router'
 
 const TWO_FACTOR_VERIFY_ROUTE = '/auth/2fa/verify'

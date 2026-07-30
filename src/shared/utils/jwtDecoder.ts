@@ -16,3 +16,17 @@ export function decodeJWT(token: string): JWTPayload {
   }
 }
 
+/**
+ * Whether an access token still requires 2FA verification, i.e. it was
+ * issued with tfaPending=true and hasn't been verified yet.
+ * Returns false (does not block navigation) if the token can't be decoded.
+ */
+export function requiresTwoFactorVerification(token: string): boolean {
+  try {
+    const payload = decodeJWT(token)
+    return payload.tfaPending === true && payload.tfaVerified !== true
+  } catch {
+    return false
+  }
+}
+

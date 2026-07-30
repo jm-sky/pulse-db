@@ -58,7 +58,7 @@ Naprawiono usuwając martwy import/route; patrz [issue 004](../issues/2026-07-30
 - **Walidacja `SqlServerEngineAdapter` na żywej instancji SQL Server** — brak dostępnego SQL Servera w tym środowisku i w CI. Logika DMV/`HAS_PERMS_BY_NAME` jest napisana i pokryta testami z mockami, ale nieprzetestowana end-to-end. Ryzyko: nazwy kolumn/typy zwracane przez `pytds` mogą się różnić od założeń.
 - **Dokumentacja minimalnych grantów per silnik** (roadmap element 9, druga połowa) — kod wykrywa `pg_monitor`/`VIEW SERVER STATE`/`VIEW DATABASE STATE`, ale nie ma jeszcze spisanej dokumentacji operatorskiej "jak nadać te uprawnienia".
 - **Harmonogram/scheduler** dla kolektora — dziś uruchamiany ręcznie przez CLI (`cli monitoring collect`), nie ma jeszcze pętli/cron w aplikacji. Roadmap Faza 0 element 8 mówi o "harmonogramie" jako części runtime'u kolektora; to zostaje do momentu, gdy jest więcej niż jedna instancja do obsługi w praktyce.
-- **CI: `Frontend (lint, typy, testy)` → `Type check` jest czerwony** na `develop` (potwierdzone, commit `9b10ab0`) niezależnie od tej pracy — poza zakresem tej iteracji (backend/domain), zgłoszone jako [issue 005](../issues/2026-07-30--005--frontend-typecheck-red-on-develop.md).
+- ~~CI: `Frontend` → `Type check` czerwony na `develop`~~ — poza pierwotnym zakresem tej iteracji, ale naprawione przy okazji ([issue 005](../issues/2026-07-30--005--frontend-typecheck-red-on-develop.md)): brakujący `src/lib/` (`cn`, `copyToClipboard`, `valueUpdater`) i `requiresTwoFactorVerification`.
 
 ## Powiązane
 

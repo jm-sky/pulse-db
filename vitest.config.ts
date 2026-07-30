@@ -12,6 +12,14 @@ export default defineConfig({
   test: {
     globals: true,
     environment: 'happy-dom',
+    // Playwright specs live under tests/e2e and tests/integration and must not be
+    // picked up by vitest — they require a running frontend + backend + database.
+    exclude: [
+      '**/node_modules/**',
+      '**/dist/**',
+      'tests/e2e/**',
+      'tests/integration/**',
+    ],
     coverage: {
       provider: 'v8',
       reporter: ['text', 'json', 'html'],

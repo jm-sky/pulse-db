@@ -101,7 +101,7 @@ def prompt_for_arguments(command_path: str) -> list[str]:
 
     positional_args: list[str] = []
     option_args: list[str] = []
-    arg_configs: list[dict[str, Any]] = COMMAND_ARGUMENTS[command_path]  # type: ignore[assignment]
+    arg_configs: list[dict[str, Any]] = COMMAND_ARGUMENTS[command_path]
 
     for arg_config in arg_configs:
         arg_name: str = str(arg_config["name"])

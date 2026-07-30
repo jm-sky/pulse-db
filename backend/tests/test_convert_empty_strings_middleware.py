@@ -18,26 +18,40 @@ def test_app() -> FastAPI:
     """Create a test FastAPI app with the middleware."""
     app = FastAPI()
 
+    async def _echo_body(request: Request) -> JSONResponse:
+        """Return the (possibly middleware-modified) request body.
+
+        Parsing is defensive on purpose: some tests deliberately send bodies that
+        are not valid JSON, to assert that the middleware passes them through
+        untouched instead of crashing. Without this guard the *endpoint* would
+        raise, which says nothing about the middleware under test.
+        """
+        body = await request.body()
+        if not body:
+            return JSONResponse(content={"received": {}})
+        try:
+            data = json.loads(body)
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            return JSONResponse(
+                content={"detail": "Invalid JSON body"},
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+        return JSONResponse(content={"received": data})
+
     @app.post("/test")
     async def test_endpoint(request: Request) -> JSONResponse:
         """Test endpoint that returns the request body."""
-        body = await request.body()
-        data = json.loads(body) if body else {}
-        return JSONResponse(content={"received": data})
+        return await _echo_body(request)
 
     @app.put("/test")
     async def test_put_endpoint(request: Request) -> JSONResponse:
         """Test PUT endpoint."""
-        body = await request.body()
-        data = json.loads(body) if body else {}
-        return JSONResponse(content={"received": data})
+        return await _echo_body(request)
 
     @app.patch("/test")
     async def test_patch_endpoint(request: Request) -> JSONResponse:
         """Test PATCH endpoint."""
-        body = await request.body()
-        data = json.loads(body) if body else {}
-        return JSONResponse(content={"received": data})
+        return await _echo_body(request)
 
     @app.get("/test")
     async def test_get_endpoint() -> JSONResponse:

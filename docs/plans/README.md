@@ -11,6 +11,7 @@ Plany implementacji funkcji i większych zmian.
 | File | Summary | Status |
 |------|---------|--------|
 | [2026-07-30-boilerplate-from-family.md](2026-07-30-boilerplate-from-family.md) | Curated hybrid boilerplate z ops-monitor + `http_ssrf` z gear-stack | `done` |
+| [2026-07-30-phase0-foundation.md](2026-07-30-phase0-foundation.md) | Faza 0 elementy 5–9: model danych, `EngineAdapter`, kolektor, partycje | `in progress` |
 
 When adding a new plan: create `YYYY-MM-DD-slug.md`, add a row here.
 

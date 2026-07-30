@@ -59,6 +59,16 @@ COMMAND_GROUPS = {
             "email": "Test email sending",
         },
     },
+    "monitoring": {
+        "name": "Monitoring Domain",
+        "commands": {
+            "register-instance": "Register a monitored instance",
+            "list-instances": "List registered instances",
+            "detect-capabilities": "Detect and store engine capabilities for an instance",
+            "collect": "Run one trivial collector tick against an instance",
+            "partitions-maintain": "Create upcoming partitions, drop expired ones",
+        },
+    },
 }
 
 # Commands that require arguments (command_path -> list of argument prompts)

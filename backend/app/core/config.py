@@ -209,6 +209,11 @@ class SecuritySettings(BaseSettings):
         validation_alias="PROTECTED_USER_EMAIL",
         description="Protected user email - this user cannot be deleted",
     )
+    credentials_encryption_key: str | None = Field(
+        default=None,
+        validation_alias="CREDENTIALS_ENCRYPTION_KEY",
+        description="Fernet key (urlsafe base64, 32 bytes) used to encrypt monitored-instance credentials at rest. Generate with `Fernet.generate_key()`.",
+    )
 
     @field_validator("secret_key")
     @classmethod

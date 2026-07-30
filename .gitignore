@@ -16,8 +16,10 @@ dist/
 downloads/
 eggs/
 .eggs/
-lib/
-lib64/
+# Scoped to backend/ (not bare lib/, lib64/) -- those also match src/lib/,
+# which is real frontend source (see issue 005).
+backend/lib/
+backend/lib64/
 parts/
 sdist/
 var/

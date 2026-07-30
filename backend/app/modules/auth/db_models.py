@@ -63,8 +63,6 @@ class UserDB(Base):
     oauth_provider: Mapped[str | None] = mapped_column(String(50), nullable=True)
     oauth_provider_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
     avatar_url: Mapped[str | None] = mapped_column(Text, nullable=True)
-    # Billing fields
-    openrouter_api_token: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
     def __repr__(self) -> str:
         return f"<UserDB(id={self.id}, email={self.email}, name={self.name})>"

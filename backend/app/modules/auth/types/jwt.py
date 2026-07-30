@@ -17,8 +17,6 @@ class JWTPayload(TypedDict, total=False):
     Attributes:
         sub: Subject (User ID) - REQUIRED
         email: User email address - RECOMMENDED
-        tid: Tenant ID (optional, for multi-tenant support)
-        trol: Tenant Role (optional, role within tenant)
         iat: Issued at (Unix timestamp) - REQUIRED
         exp: Expiration time (Unix timestamp) - REQUIRED
         aud: Audience (optional, token audience)
@@ -32,8 +30,6 @@ class JWTPayload(TypedDict, total=False):
 
     sub: str
     email: str | None
-    tid: str | None
-    trol: str | None
     iat: int
     exp: int
     aud: str | None
@@ -53,16 +49,12 @@ class CreateAccessTokenOptions(TypedDict, total=False):
     Attributes:
         sub: Subject (User ID) - REQUIRED
         email: User email address - RECOMMENDED
-        tid: Tenant ID (optional, for multi-tenant support)
-        trol: Tenant Role (optional, role within tenant)
         tfaVerified: Whether 2FA has been verified (default: False)
         tfaMethod: 2FA method used - 'totp' or 'webauthn' (optional)
     """
 
     sub: str
     email: str | None
-    tid: str | None
-    trol: str | None
     tfaVerified: bool
     tfaMethod: str | None  # 'totp' | 'webauthn'
     emailVerified: bool | None
@@ -78,8 +70,6 @@ class CreateRefreshTokenOptions(TypedDict, total=False):
         email: User email address - RECOMMENDED
         tfaVerified: Whether 2FA has been verified (default: False)
         tfaMethod: 2FA method used - 'totp' or 'webauthn' (optional)
-
-    Note: tid/trol are NOT preserved in refresh tokens (security).
     """
 
     sub: str

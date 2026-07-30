@@ -20,7 +20,7 @@ def setup_middleware(app: FastAPI) -> None:
     - Security Headers: Always enabled (CSP, X-Frame-Options, HSTS in production, etc.)
     - CORS: Always enabled with configurable origins (CORS_ORIGINS env var)
     - Trusted Host: Enabled in production with configurable hosts (ALLOWED_HOSTS env var)
-    - CSRF: Double-submit cookie for unsafe methods (exempts Stripe webhooks)
+    - CSRF: Double-submit cookie for unsafe methods (exempts registered webhook paths)
 
     Args:
         app: FastAPI application instance
@@ -57,5 +57,6 @@ def setup_middleware(app: FastAPI) -> None:
     app.add_middleware(ConvertEmptyStringsToNoneMiddleware)
 
     # CSRF double-submit (cookie + X-CSRF-Token). Added last → outermost on request.
-    # Stripe webhooks are exempt (see WEBHOOK_PATHS). Safe methods skip validation.
+    # Registered webhook paths are exempt (see WEBHOOK_PATHS — empty in PulseDB).
+    # Safe methods skip validation.
     app.add_middleware(CSRFMiddleware)

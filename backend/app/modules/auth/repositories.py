@@ -351,7 +351,6 @@ class UserRepository(SearchMixin, UserRepositoryInterface):
             user_db.oauth_provider = None
             user_db.oauth_provider_id = None
             user_db.avatar_url = None
-            user_db.openrouter_api_token = None
         else:
             # Hard delete: physically remove from database
             await self.db.delete(user_db)

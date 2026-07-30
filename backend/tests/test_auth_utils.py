@@ -210,17 +210,14 @@ class TestTokenOptions:
         assert payload.get("tfaVerified") is True
         assert payload.get("tfaMethod") == "totp"
 
-    def test_access_token_with_tenant_info(self) -> None:
-        """Test access token with tenant information."""
-        token = create_access_token(data={"sub": "user123", "tid": "tenant1", "trol": "admin"})
-        payload = verify_token(token)
-        assert payload.get("tid") == "tenant1"
-        assert payload.get("trol") == "admin"
+    def test_tokens_do_not_carry_tenant_claims(self) -> None:
+        """Tenancy is resolved at the monitored-instance boundary, not via JWT claims.
 
-    def test_refresh_token_does_not_contain_tenant_info(self) -> None:
-        """Test that refresh token does not preserve tenant info (security)."""
-        token = create_refresh_token(data={"sub": "user123", "tid": "tenant1", "trol": "admin"})  # type: ignore[typeddict-unknown-key]
-        payload = verify_token(token)
-        # Tenant info should NOT be in refresh token
-        assert "tid" not in payload or payload.get("tid") is None
-        assert "trol" not in payload or payload.get("trol") is None
+        See docs/research/2026-07-30-data-model.md §8 — `tenant_id` lives on
+        `monitored_instance` only. No token should carry tenant context.
+        """
+        access_payload = verify_token(create_access_token(data={"sub": "user123"}))
+        refresh_payload = verify_token(create_refresh_token(data={"sub": "user123"}))
+        for payload in (access_payload, refresh_payload):
+            assert "tid" not in payload
+            assert "trol" not in payload

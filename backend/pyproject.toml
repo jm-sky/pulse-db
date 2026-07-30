@@ -7,8 +7,8 @@ name = "pulse-db-backend"
 version = "0.1.0"
 description = "PulseDB API Backend"
 readme = "README.md"
-requires-python = ">=3.11"
-license = {text = "MIT"}
+requires-python = ">=3.12"
+license = {text = "AGPL-3.0-or-later"}
 authors = [
     {name = "Jan Madeyski", email = "jan.madeyski@gmail.com"}
 ]

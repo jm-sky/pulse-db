@@ -3,10 +3,11 @@
 The SPA sends the non-HttpOnly ``csrf_token`` cookie value in the
 ``X-CSRF-Token`` header on unsafe methods. Middleware rejects mismatches.
 
-Exempt: safe methods (GET/HEAD/OPTIONS) and Stripe webhook paths (signature
-auth, no browser cookie). OAuth callback / WebAuthn / 2FA / refresh are
-SPA-initiated and must send the header like any other mutation — they are
-not exempted.
+Exempt: safe methods (GET/HEAD/OPTIONS) and any registered webhook paths
+(signature auth, no browser cookie). PulseDB currently registers none —
+``WEBHOOK_PATHS`` resolves to an empty list, so the exemption is inert.
+OAuth callback / WebAuthn / 2FA / refresh are SPA-initiated and must send
+the header like any other mutation — they are not exempted.
 """
 
 from __future__ import annotations
@@ -23,6 +24,9 @@ from starlette.responses import JSONResponse, Response
 
 from app.core.config import settings
 
+# Optional webhook exemption list. PulseDB has no billing module, so this falls
+# back to an empty list and no path is exempted. Kept as a seam for a future
+# module that needs signature-authenticated, cookie-less endpoints.
 try:
     from app.modules.billing.constants import WEBHOOK_PATHS
 except ImportError:

@@ -63,10 +63,10 @@ def create_access_token(
     data: CreateAccessTokenOptions,
     expires_delta: timedelta | None = None,
 ) -> str:
-    """Create a JWT access token with optional tenant and 2FA context.
+    """Create a JWT access token with optional 2FA context.
 
     Args:
-        data: Token options including sub (required), email, tid, trol, tfaVerified, tfaMethod
+        data: Token options including sub (required), email, tfaVerified, tfaMethod
         expires_delta: Optional custom expiration time. If not provided, uses default from settings.
 
     Returns:
@@ -75,8 +75,6 @@ def create_access_token(
     claims: dict[str, Any] = {
         "sub": data["sub"],
         "email": data.get("email"),
-        "tid": data.get("tid"),
-        "trol": data.get("trol"),
         "tfaPending": False,
         "tfaVerified": data.get("tfaVerified", False),
         "tfaMethod": data.get("tfaMethod"),
@@ -138,7 +136,6 @@ def create_refresh_token(data: CreateRefreshTokenOptions) -> str:
 
     Args:
         data: Token options including sub (required), email, tfaVerified, tfaMethod
-            Note: tid/trol are NOT preserved in refresh tokens (security).
 
     Returns:
         Encoded JWT token string
@@ -151,7 +148,6 @@ def create_refresh_token(data: CreateRefreshTokenOptions) -> str:
         "emailVerified": data.get("emailVerified"),
         "jti": data.get("jti", str(uuid4())),
         "tv": data.get("tv", 0),
-        # NOTE: tid/trol are NOT preserved in refresh token (security)
     }
     return _encode_token(
         claims,

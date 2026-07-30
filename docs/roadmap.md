@@ -262,9 +262,39 @@ Największa nierozwiązana luka projektu (§6 vision: *sam AGPLv3 nie generuje a
 
 ---
 
+## 11. Stan na koniec sesji 2026-07-30 i rekomendacja kolejnych kroków
+
+**Gotowe do przejęcia przez kolejną sesję.** Poniżej zwięzły stan + priorytety, żeby nie trzeba było rekonstruować kontekstu z historii commitów.
+
+### Stan faktyczny
+
+| Obszar | Stan |
+|---|---|
+| Faza 0 (fundament) | Zasadniczo zamknięta. Zostają trzy pozycje, wszystkie z konkretnym blokerem — patrz [plan Fazy 0](plans/2026-07-30-phase0-foundation.md) „Co zostaje" |
+| Faza 1, elementy 1–2 (sampler + top queries) | **PostgreSQL: zaimplementowane i zweryfikowane end-to-end** na żywej instancji (self-monitoring) — `pg_stat_activity` sampler, `pg_stat_statements` delty, plus opcjonalne źródło `pg_wait_sampling_history` (opt-in, `sample-wait-history`). **SQL Server: `NotImplementedError`, jawnie zadeklarowane, nie zaczęte.** Szczegóły: [plan Fazy 1](plans/2026-07-30-phase1-diagnostic-core.md) |
+| Faza 1, elementy 3–7 | Nie zaczęte |
+| Faza 0a (spike'e, wywiady, PRD) | Nie zaczęte — patrz §2 wyżej, wciąż otwarte od startu projektu |
+
+### Rekomendacja — w tej kolejności
+
+1. **Rollupy (Faza 0 element 7, ADR §6)** — teraz odblokowane: `session_sample`/`query_stat_delta` mają realne dane do testowania kardynalności top-N+other, czego wcześniej brakowało. To zamyka ostatnią pozycję Fazy 0, którą da się zamknąć bez zewnętrznych zależności, i jest warunkiem taniej Fazy 1 elementu 6 („porównanie okresów — tanie, bo rollupy już są").
+2. **Harmonogram/scheduler dla kolektora (Faza 0 element 8)** — dziś wszystko to pojedyncze ticki przez CLI. Kryterium wyjścia z Fazy 1 („sampler pracuje 7 dni bez przerwy") wymaga pętli/cron, nie tylko funkcji kolekcji. Naturalnie następuje po rollupach, bo bez nich ciągłe zbieranie tylko powiększa surowe dane bez korzyści.
+3. **SQL Server, elementy 1–2 Fazy 1** — ten sam wzorzec co PostgreSQL (DMV + Query Store), zablokowane wyłącznie brakiem dostępnej instancji w tym środowisku/CI. **Priorytet, gdy tylko dostęp do SQL Servera się pojawi** — do tego czasu produkt jest jednosilnikowy mimo pozycjonowania „oba silniki, jeden panel" (§3.1 vision), co jest ryzykiem widocznym, nie ukrytym.
+4. **Faza 1, elementy 3–5** (plany wykonania + detekcja zmiany planu, blokady/deadlocki jako zdarzenia, analiza indeksów) — kolejność z roadmapy, niezmieniona.
+5. **Faza 0a** (wywiady z DBA, spike'i, PRD, ADR biblioteki wykresów) — formalnie wciąż przed Fazą 0 w kolejności roadmapy, ale praktycznie ominięta, bo praca techniczna ruszyła bez niej. Ryzyko nazwane wprost: **teza produktu („estate mieszane PG+SQL Server, przełączanie narzędzi boli") wciąż nie jest zweryfikowana rozmowami z użytkownikami** — cała inwestycja w SQL Server (pozycja 3 wyżej) stoi na założeniu, nie na potwierdzeniu. Warto rozważyć równolegle, nie odkładać w nieskończoność.
+
+### Co NIE jest zalecane teraz
+
+- Automatyczne (nie opt-in) przełączenie na `pg_wait_sampling` jako domyślne źródło — wymaga decyzji o budżecie retencji/wolumenu (~100× więcej wierszy), nie tylko kodu; patrz [plan Fazy 1](plans/2026-07-30-phase1-diagnostic-core.md) sekcja „richer source".
+- Ciągnięcie Fazy 1 elementów 6–7 (baseline) przed rollupami — z ADR: baseline liczy się z kubełków godzinowych rollupu, nie z surowych próbek.
+
+---
+
 ## Powiązane
 
 - [vision.md](vision.md) — zakres, zasady, non-goals, kryteria sukcesu
 - `prd.md` — wymagania i kryteria akceptacji (do napisania w Fazie 0a)
 - [plans/2026-07-30-boilerplate-from-family.md](plans/2026-07-30-boilerplate-from-family.md) — fundament techniczny, `in progress`
+- [plans/2026-07-30-phase0-foundation.md](plans/2026-07-30-phase0-foundation.md) — Faza 0 elementy 4–9, `in progress`
+- [plans/2026-07-30-phase1-diagnostic-core.md](plans/2026-07-30-phase1-diagnostic-core.md) — Faza 1 elementy 1–2 (slice PostgreSQL), `in progress`
 - [research/opportunities.md](research/opportunities.md) — źródło zakresu MVP i rekomendacji kolejnych kroków

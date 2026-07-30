@@ -13,13 +13,19 @@ and `run_query_stats_collection` (60s-cadence pg_stat_statements delta ->
 `query_stat_delta`). Each is one invocation, same as the trivial tick --
 looping them on their respective cadences is a scheduler's job (still
 manual via CLI/cron for now, per roadmap Phase 0 item 8's deferral).
+
+`run_wait_sampling_history_collection` is a fourth, explicitly opt-in tick:
+the "richer source" from roadmap element 1 ("pg_wait_sampling opcjonalnie
+gdy obecne, z komunikatem o różnicy jakości"). PostgreSQL only, and not
+folded into `run_session_sample_collection`'s default path -- see its
+docstring for why (volume, not just an easy quality upgrade).
 """
 
 from __future__ import annotations
 
 import time
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from app.core.database import AsyncSessionLocal
 
@@ -87,6 +93,20 @@ class QueryStatsResult:
     gap_detected: bool
     gap_seconds: float | None
     error_message: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class WaitSamplingHistoryResult:
+    run_id: str
+    status: str
+    overhead_ms: float
+    samples_written: int | None
+    distinct_sessions: int | None
+    history_period_ms: int | None
+    gap_detected: bool
+    gap_seconds: float | None
+    error_message: str | None
+    note: str | None
 
 
 async def detect_and_store_capabilities(instance_id: str) -> EngineCapabilities:
@@ -363,4 +383,161 @@ async def run_query_stats_collection(instance_id: str, *, interval_ms: int = 60_
         gap_detected=gap_detected,
         gap_seconds=gap_seconds,
         error_message=error_message,
+    )
+
+
+async def run_wait_sampling_history_collection(instance_id: str) -> WaitSamplingHistoryResult:
+    """Explicit opt-in richer-source tick (Faza 1 element 1): drain `pg_wait_sampling_history`
+    since the last watermark into `session_sample`, instead of one `pg_stat_activity` point
+    sample per poll.
+
+    Why this is its own function/CLI command rather than a mode of
+    `run_session_sample_collection`: measured locally, the extension's
+    default 10ms period means a session active for the full ~1s between
+    two poll-based ticks yields *one* poll-based `session_sample` row but
+    *~100* history-based rows for that same second -- materially higher
+    storage than the ADR's stated `session_sample` volume budget (§10 risk
+    table). Folding it into the default path would silently multiply
+    storage the moment `pg_wait_sampling` happens to be installed. Opt-in
+    plus `note` on the result (surfaced by the CLI) is the "z komunikatem o
+    różnicy jakości" the roadmap calls for.
+
+    `interval_ms` on written rows is the extension's actual measured
+    period (`pg_wait_sampling.history_period`), not a poll interval --
+    ADR §4's correctness rule ("interval_ms jest kolumną... nie stałą")
+    applies here more literally than anywhere else in the collector.
+
+    Timestamps come from the monitored instance's clock; corrected with
+    the most recently measured `clock_offset_ms` (ADR §9) before storage.
+    The watermark itself stays in the instance's clock domain (compared
+    against the raw `pg_wait_sampling_history.ts` column next run), only
+    the stored `sampled_at` is translated.
+    """
+    async with AsyncSessionLocal() as session:
+        params = await repository.get_connection_params(session, instance_id)
+        adapter = _adapter_for(params.engine)
+        if not isinstance(adapter, PostgresEngineAdapter):
+            raise NotImplementedError("run_wait_sampling_history_collection: PostgreSQL only -- pg_wait_sampling has no SQL Server equivalent")
+
+        watermark = await repository.get_wait_sampling_watermark(session, instance_id=instance_id)
+
+        started_at = datetime.now(UTC)
+        clock_start = time.perf_counter()
+        status = "ok"
+        error_message: str | None = None
+        samples_written: int | None = None
+        distinct_sessions: int | None = None
+        history_period_ms: int | None = None
+        note: str | None = None
+        gap_detected = False
+        gap_seconds: float | None = None
+
+        try:
+            clock_offset_ms = await repository.get_latest_clock_offset_ms(session, instance_id=instance_id)
+            batch = await adapter.collect_wait_sampling_history(params, since=watermark)
+            history_period_ms = batch.history_period_ms
+
+            if history_period_ms is None:
+                note = "pg_wait_sampling not installed on this instance -- see docs/grants.md"
+            else:
+                note = (
+                    f"pg_wait_sampling active ({history_period_ms}ms native period): expect substantially "
+                    "more session_sample rows per active session than the poll-based sampler while this "
+                    "source is used -- verify retention/storage budget (ADR data model §7, §10) before "
+                    "running this continuously"
+                )
+
+            # Ring buffer is fixed-size (pg_wait_sampling.history_size rows);
+            # if it wrapped past our watermark before this tick ran, older
+            # samples were lost -- an explicit gap, not silence.
+            if watermark is not None and batch.ring_buffer_min_ts is not None and batch.ring_buffer_min_ts > watermark:
+                gap_detected = True
+                gap_seconds = (batch.ring_buffer_min_ts - watermark).total_seconds()
+
+            offset_delta = timedelta(milliseconds=clock_offset_ms) if clock_offset_ms is not None else timedelta(0)
+            seen_pids: set[int] = set()
+            latest_ts = watermark
+
+            for row in batch.rows:
+                seen_pids.add(row.pid)
+                if latest_ts is None or row.sampled_at > latest_ts:
+                    latest_ts = row.sampled_at
+
+                query_id: str | None = None
+                if row.engine_query_key:
+                    query_id = await repository.find_query_id_by_engine_key(session, instance_id=instance_id, engine_query_key=row.engine_query_key)
+                    if query_id is None and row.query_text:
+                        normalized = repository.normalize_query_text(row.query_text)
+                        query_id = await repository.upsert_query(session, instance_id=instance_id, engine=params.engine, engine_query_key=row.engine_query_key, normalized_text=normalized)
+                elif row.query_text:
+                    normalized = repository.normalize_query_text(row.query_text)
+                    query_id = await repository.upsert_query(session, instance_id=instance_id, engine=params.engine, engine_query_key=repository.compute_norm_hash(normalized), normalized_text=normalized)
+
+                session_attr_id = await repository.upsert_session_attr(
+                    session,
+                    instance_id=instance_id,
+                    db_user=row.db_user,
+                    program=row.application_name,
+                    client_host=row.client_host,
+                )
+
+                wait_event_engine: str | None = None
+                wait_event_native_name: str | None = None
+                is_idle = False
+                if row.wait_event_type and row.wait_event:
+                    wait_event_native_name = f"{row.wait_event_type}:{row.wait_event}"
+                    wait_event_engine = params.engine.value
+                    is_idle = await repository.ensure_wait_event(session, engine=params.engine, native_name=wait_event_native_name)
+
+                await repository.insert_session_sample(
+                    session,
+                    instance_id=instance_id,
+                    sampled_at=row.sampled_at - offset_delta,
+                    interval_ms=history_period_ms or 10,
+                    query_id=query_id,
+                    wait_event_engine=wait_event_engine,
+                    wait_event_native_name=wait_event_native_name,
+                    session_attr_id=session_attr_id,
+                    is_idle=is_idle,
+                )
+
+            samples_written = len(batch.rows)
+            distinct_sessions = len(seen_pids)
+
+            if latest_ts is not None and latest_ts != watermark:
+                await repository.set_wait_sampling_watermark(session, instance_id=instance_id, last_ts=latest_ts)
+        except Exception as exc:  # collector must never crash the scheduler on a bad instance
+            status = "error"
+            error_message = str(exc)
+
+        overhead_ms = (time.perf_counter() - clock_start) * 1000
+        finished_at = datetime.now(UTC)
+
+        run_id = await repository.insert_collector_run(
+            session,
+            instance_id=instance_id,
+            kind="wait_sampling_history",
+            started_at=started_at,
+            finished_at=finished_at,
+            status=status,
+            interval_ms=history_period_ms or 0,
+            overhead_ms=overhead_ms,
+            clock_offset_ms=None,
+            gap_detected=gap_detected,
+            gap_seconds=gap_seconds,
+            error_message=error_message,
+        )
+        await session.commit()
+
+    return WaitSamplingHistoryResult(
+        run_id=run_id,
+        status=status,
+        overhead_ms=overhead_ms,
+        samples_written=samples_written,
+        distinct_sessions=distinct_sessions,
+        history_period_ms=history_period_ms,
+        gap_detected=gap_detected,
+        gap_seconds=gap_seconds,
+        error_message=error_message,
+        note=note,
     )

@@ -463,3 +463,49 @@ async def insert_query_stat_delta(
             "shared_blks_written": shared_blks_written,
         },
     )
+
+
+# --- Phase 1 element 1, richer source: pg_wait_sampling_history -----------
+
+
+async def get_wait_sampling_watermark(session: AsyncSession, *, instance_id: str) -> datetime | None:
+    result = await session.execute(
+        text("SELECT last_ts FROM wait_sampling_cursor WHERE instance_id = :instance_id"),
+        {"instance_id": instance_id},
+    )
+    row = result.first()
+    return row.last_ts if row else None
+
+
+async def set_wait_sampling_watermark(session: AsyncSession, *, instance_id: str, last_ts: datetime) -> None:
+    await session.execute(
+        text("""
+            INSERT INTO wait_sampling_cursor (instance_id, last_ts, updated_at)
+            VALUES (:instance_id, :last_ts, now())
+            ON CONFLICT (instance_id) DO UPDATE SET last_ts = EXCLUDED.last_ts, updated_at = now()
+            """),
+        {"instance_id": instance_id, "last_ts": last_ts},
+    )
+
+
+async def get_latest_clock_offset_ms(session: AsyncSession, *, instance_id: str) -> float | None:
+    """Most recent measured `clock_offset_ms` for this instance (any collector_run kind).
+
+    Used to translate monitored-instance-clock timestamps (e.g.
+    `pg_wait_sampling_history.ts`) back to PulseDB's authoritative clock
+    (ADR §9: "Zegarem autorytatywnym jest zegar PulseDB, nie monitorowanej
+    bazy" -- but engine-origin timestamps are still translatable after the
+    fact once the offset is known).
+    """
+    result = await session.execute(
+        text("""
+            SELECT clock_offset_ms
+            FROM collector_run
+            WHERE instance_id = :instance_id AND clock_offset_ms IS NOT NULL
+            ORDER BY started_at DESC
+            LIMIT 1
+            """),
+        {"instance_id": instance_id},
+    )
+    row = result.first()
+    return row.clock_offset_ms if row else None

@@ -68,6 +68,7 @@ COMMAND_GROUPS = {
             "collect": "Run one trivial collector tick against an instance",
             "sample-sessions": "Run one ASH tick: active sessions with wait attribution (PostgreSQL)",
             "collect-query-stats": "Run one tick: pg_stat_statements deltas into query_stat_delta (PostgreSQL)",
+            "sample-wait-history": "Richer-source ASH tick from pg_wait_sampling_history, opt-in (PostgreSQL)",
             "partitions-maintain": "Create upcoming partitions, drop expired ones",
         },
     },

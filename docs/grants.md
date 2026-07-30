@@ -41,9 +41,12 @@ instancji, nie konta `pulsedb_monitor`:
 | `pg_wait_sampling` | Wyższa jakość atrybucji waitów niż `pg_stat_activity` (Faza 1 element 1) | admin instancji, opcjonalne |
 | `hypopg` | Walidacja hipotetycznych indeksów (v0.2, poza MVP) | admin instancji, opcjonalne |
 
-Po instalacji `pulsedb_monitor` widzi je przez `pg_monitor` bez dodatkowego
-grantu — same widoki `pg_stat_statements`/`pg_wait_sampling` są czytelne dla
-tej roli.
+Po instalacji `pulsedb_monitor` widzi je bez dodatkowego grantu, ale z dwóch
+różnych powodów, zweryfikowanych, nie zgadywanych: `pg_stat_statements` jest
+czytelne dla `pg_monitor`; `pg_wait_sampling` samo nadaje `GRANT SELECT ...
+TO PUBLIC` na swoje trzy widoki (`pg_wait_sampling_current/_history/_profile`)
+w skrypcie instalacyjnym rozszerzenia (`pg_wait_sampling--1.1.sql`) — czytelne
+dla **każdej** zalogowanej roli, nie tylko `pg_monitor`.
 
 ### Czego kolektor **nie** dostaje
 

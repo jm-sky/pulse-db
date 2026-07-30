@@ -6,7 +6,9 @@ Roadmap Phase 0 exit criteria: "zarejestrowane dwie instancje ... trywialny
 kolektor zapisuje fakty ... narzut kolektora jest mierzony i widoczny" --
 these commands are the operational surface for that until a real scheduler
 and Web UI exist (Phase 2). `sample-sessions`/`collect-query-stats` are the
-Phase 1 elements 1/2 PostgreSQL slice (docs/plans/2026-07-30-phase1-diagnostic-core.md).
+Phase 1 elements 1/2 PostgreSQL slice; `sample-wait-history` is the
+explicit-opt-in richer source on top of element 1
+(docs/plans/2026-07-30-phase1-diagnostic-core.md).
 """
 
 import asyncio
@@ -162,6 +164,34 @@ def collect_query_stats(
 
     if result.gap_detected:
         console.print(f"[yellow]Gap detected:[/yellow] {result.gap_seconds:.1f}s since expected previous run")
+
+
+@monitoring_app.command("sample-wait-history")
+def sample_wait_history(
+    instance_id: str = typer.Argument(..., help="Instance ID from list-instances"),
+) -> None:
+    """Richer-source ASH tick (PostgreSQL only, opt-in): drain pg_wait_sampling_history since the
+    last watermark instead of one pg_stat_activity point sample per poll.
+
+    Substantially higher-resolution than `sample-sessions` (the extension's
+    native ~10ms period vs. a ~1s poll) but writes proportionally more
+    session_sample rows -- read the printed note before running this on a
+    schedule. See docs/grants.md and docs/plans/2026-07-30-phase1-diagnostic-core.md.
+    """
+    from app.modules.monitoring.collector import run_wait_sampling_history_collection
+
+    result = asyncio.run(run_wait_sampling_history_collection(instance_id))
+
+    if result.status == "ok":
+        console.print(f"[bold green]OK[/bold green] samples={result.samples_written} distinct_sessions={result.distinct_sessions} history_period_ms={result.history_period_ms} overhead_ms={result.overhead_ms:.2f}")
+    else:
+        console.print(f"[bold red]ERROR[/bold red] {result.error_message}")
+
+    if result.note:
+        console.print(f"[cyan]Note:[/cyan] {result.note}")
+
+    if result.gap_detected:
+        console.print(f"[yellow]Ring buffer overrun:[/yellow] ~{result.gap_seconds:.1f}s of history lost since last collection -- poll more often or accept the gap")
 
 
 @monitoring_app.command("partitions-maintain")

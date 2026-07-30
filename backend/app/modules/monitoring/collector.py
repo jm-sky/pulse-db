@@ -4,8 +4,15 @@ measure its own overhead, and record explicit gaps.
 Roadmap Phase 0 item 8: "harmonogram, idempotencja, jawne oznaczanie luk,
 pomiar wlasnego narzutu" -- this module is the "trywialny kolektor" from
 item 5/exit criteria: it writes one instance_metric fact plus a
-collector_run row per invocation. The 1s ASH sampler is Phase 1; this proves
-the adapter -> repository -> fact-table path end to end.
+collector_run row per invocation.
+
+Phase 1 elements 1/2 (docs/plans/2026-07-30-phase1-diagnostic-core.md) add
+two more tick functions alongside `run_trivial_collection`:
+`run_session_sample_collection` (1s-cadence ASH sample -> `session_sample`)
+and `run_query_stats_collection` (60s-cadence pg_stat_statements delta ->
+`query_stat_delta`). Each is one invocation, same as the trivial tick --
+looping them on their respective cadences is a scheduler's job (still
+manual via CLI/cron for now, per roadmap Phase 0 item 8's deferral).
 """
 
 from __future__ import annotations
@@ -59,6 +66,29 @@ class CollectionResult:
     error_message: str | None
 
 
+@dataclass(frozen=True, slots=True)
+class SessionSampleResult:
+    run_id: str
+    status: str
+    overhead_ms: float
+    session_count: int | None
+    gap_detected: bool
+    gap_seconds: float | None
+    error_message: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class QueryStatsResult:
+    run_id: str
+    status: str
+    overhead_ms: float
+    queries_seen: int | None
+    deltas_written: int | None
+    gap_detected: bool
+    gap_seconds: float | None
+    error_message: str | None
+
+
 async def detect_and_store_capabilities(instance_id: str) -> EngineCapabilities:
     """Connect once, detect engine capabilities, persist them on monitored_instance."""
     async with AsyncSessionLocal() as session:
@@ -73,7 +103,7 @@ async def run_trivial_collection(instance_id: str, *, interval_ms: int = 60_000)
     """One collector tick: sample, measure overhead/clock offset, detect gaps, persist."""
     async with AsyncSessionLocal() as session:
         params = await repository.get_connection_params(session, instance_id)
-        last_finished_at, _last_interval_ms = await repository.get_last_collector_run(session, instance_id)
+        last_finished_at, _last_interval_ms = await repository.get_last_collector_run(session, instance_id, kind="trivial")
 
         started_at = datetime.now(UTC)
         gap_detected, gap_seconds = _detect_gap(started_at=started_at, last_finished_at=last_finished_at, interval_ms=interval_ms)
@@ -110,6 +140,7 @@ async def run_trivial_collection(instance_id: str, *, interval_ms: int = 60_000)
         run_id = await repository.insert_collector_run(
             session,
             instance_id=instance_id,
+            kind="trivial",
             started_at=started_at,
             finished_at=finished_at,
             status=status,
@@ -128,6 +159,207 @@ async def run_trivial_collection(instance_id: str, *, interval_ms: int = 60_000)
         overhead_ms=overhead_ms,
         active_session_count=active_session_count,
         clock_offset_ms=clock_offset_ms,
+        gap_detected=gap_detected,
+        gap_seconds=gap_seconds,
+        error_message=error_message,
+    )
+
+
+async def run_session_sample_collection(instance_id: str, *, interval_ms: int = 1_000) -> SessionSampleResult:
+    """One ASH tick (Phase 1 element 1): snapshot active sessions with wait attribution.
+
+    Resolves query identity for each session (native key -> known `query`
+    row -> interim fallback upsert if unseen) and wait-event classification
+    (auto-registering unknown natives as `other`, ADR §5) before writing
+    `session_sample` rows. No `clock_offset_ms` here -- the trivial tick
+    already measures it; repeating that query on every 1s sample would be
+    pure overhead for a number that doesn't change tick to tick.
+    """
+    async with AsyncSessionLocal() as session:
+        params = await repository.get_connection_params(session, instance_id)
+        last_finished_at, _last_interval_ms = await repository.get_last_collector_run(session, instance_id, kind="session_sample")
+
+        started_at = datetime.now(UTC)
+        gap_detected, gap_seconds = _detect_gap(started_at=started_at, last_finished_at=last_finished_at, interval_ms=interval_ms)
+
+        clock_start = time.perf_counter()
+        status = "ok"
+        error_message: str | None = None
+        session_count: int | None = None
+
+        try:
+            active_sessions = await _adapter_for(params.engine).collect_active_sessions(params)
+            sampled_at = datetime.now(UTC)
+            session_count = 0
+
+            for row in active_sessions:
+                query_id: str | None = None
+                if row.engine_query_key:
+                    query_id = await repository.find_query_id_by_engine_key(session, instance_id=instance_id, engine_query_key=row.engine_query_key)
+                    if query_id is None and row.query_text:
+                        # Query hasn't shown up via query-stats collection yet
+                        # (still running / first execution) -- interim upsert
+                        # using our own normalization (ADR §10 risk).
+                        normalized = repository.normalize_query_text(row.query_text)
+                        query_id = await repository.upsert_query(session, instance_id=instance_id, engine=params.engine, engine_query_key=row.engine_query_key, normalized_text=normalized)
+                elif row.query_text:
+                    # No native identity at all -- synthesize one from our own
+                    # hash so the session is still attributable to *a* query.
+                    normalized = repository.normalize_query_text(row.query_text)
+                    query_id = await repository.upsert_query(session, instance_id=instance_id, engine=params.engine, engine_query_key=repository.compute_norm_hash(normalized), normalized_text=normalized)
+
+                session_attr_id = await repository.upsert_session_attr(
+                    session,
+                    instance_id=instance_id,
+                    db_user=row.db_user,
+                    program=row.application_name,
+                    client_host=row.client_host,
+                )
+
+                wait_event_engine: str | None = None
+                wait_event_native_name: str | None = None
+                is_idle = False
+                if row.wait_event_type and row.wait_event:
+                    wait_event_native_name = f"{row.wait_event_type}:{row.wait_event}"
+                    wait_event_engine = params.engine.value
+                    is_idle = await repository.ensure_wait_event(session, engine=params.engine, native_name=wait_event_native_name)
+
+                await repository.insert_session_sample(
+                    session,
+                    instance_id=instance_id,
+                    sampled_at=sampled_at,
+                    interval_ms=interval_ms,
+                    query_id=query_id,
+                    wait_event_engine=wait_event_engine,
+                    wait_event_native_name=wait_event_native_name,
+                    session_attr_id=session_attr_id,
+                    is_idle=is_idle,
+                )
+                session_count += 1
+        except Exception as exc:  # collector must never crash the scheduler on a bad instance
+            status = "error"
+            error_message = str(exc)
+
+        overhead_ms = (time.perf_counter() - clock_start) * 1000
+        finished_at = datetime.now(UTC)
+
+        run_id = await repository.insert_collector_run(
+            session,
+            instance_id=instance_id,
+            kind="session_sample",
+            started_at=started_at,
+            finished_at=finished_at,
+            status=status,
+            interval_ms=interval_ms,
+            overhead_ms=overhead_ms,
+            clock_offset_ms=None,
+            gap_detected=gap_detected,
+            gap_seconds=gap_seconds,
+            error_message=error_message,
+        )
+        await session.commit()
+
+    return SessionSampleResult(
+        run_id=run_id,
+        status=status,
+        overhead_ms=overhead_ms,
+        session_count=session_count,
+        gap_detected=gap_detected,
+        gap_seconds=gap_seconds,
+        error_message=error_message,
+    )
+
+
+async def run_query_stats_collection(instance_id: str, *, interval_ms: int = 60_000) -> QueryStatsResult:
+    """One query-stats tick (Phase 1 element 2): pg_stat_statements cumulative -> delta.
+
+    pg_stat_statements/Query Store only expose running totals since the last
+    reset; `query_stat_delta` stores per-bucket deltas (ADR §3). Each query's
+    previous cumulative reading lives in `query_stat_cursor` (migration 070)
+    so the delta is `current - previous`, clamped to >= 0 to survive a stats
+    reset without going negative. First sighting of a query establishes the
+    cursor baseline without writing a (meaningless) delta row.
+    """
+    async with AsyncSessionLocal() as session:
+        params = await repository.get_connection_params(session, instance_id)
+        last_finished_at, _last_interval_ms = await repository.get_last_collector_run(session, instance_id, kind="query_stats")
+
+        started_at = datetime.now(UTC)
+        gap_detected, gap_seconds = _detect_gap(started_at=started_at, last_finished_at=last_finished_at, interval_ms=interval_ms)
+        bucket_start = started_at.replace(second=0, microsecond=0)
+
+        clock_start = time.perf_counter()
+        status = "ok"
+        error_message: str | None = None
+        queries_seen: int | None = None
+        deltas_written: int | None = None
+
+        try:
+            stat_rows = await _adapter_for(params.engine).collect_query_stats(params)
+            queries_seen = 0
+            deltas_written = 0
+
+            for row in stat_rows:
+                queries_seen += 1
+                normalized = repository.normalize_query_text(row.normalized_text)
+                query_id = await repository.upsert_query(session, instance_id=instance_id, engine=params.engine, engine_query_key=row.engine_query_key, normalized_text=normalized)
+
+                cursor = await repository.get_query_stat_cursor(session, instance_id=instance_id, engine_query_key=row.engine_query_key)
+                if cursor is not None:
+                    delta_calls = max(0, row.calls - cursor.last_calls)
+                    if delta_calls > 0:
+                        await repository.insert_query_stat_delta(
+                            session,
+                            instance_id=instance_id,
+                            query_id=query_id,
+                            bucket_start=bucket_start,
+                            calls=delta_calls,
+                            total_time_ms=max(0.0, row.total_time_ms - cursor.last_total_time_ms),
+                            rows_returned=max(0, row.rows - cursor.last_rows),
+                            shared_blks_read=max(0, row.shared_blks_read - cursor.last_shared_blks_read),
+                            shared_blks_written=max(0, row.shared_blks_written - cursor.last_shared_blks_written),
+                        )
+                        deltas_written += 1
+
+                await repository.upsert_query_stat_cursor(
+                    session,
+                    instance_id=instance_id,
+                    engine_query_key=row.engine_query_key,
+                    calls=row.calls,
+                    total_time_ms=row.total_time_ms,
+                    rows=row.rows,
+                    shared_blks_read=row.shared_blks_read,
+                    shared_blks_written=row.shared_blks_written,
+                )
+        except Exception as exc:  # collector must never crash the scheduler on a bad instance
+            status = "error"
+            error_message = str(exc)
+
+        overhead_ms = (time.perf_counter() - clock_start) * 1000
+        finished_at = datetime.now(UTC)
+
+        run_id = await repository.insert_collector_run(
+            session,
+            instance_id=instance_id,
+            kind="query_stats",
+            started_at=started_at,
+            finished_at=finished_at,
+            status=status,
+            interval_ms=interval_ms,
+            overhead_ms=overhead_ms,
+            clock_offset_ms=None,
+            gap_detected=gap_detected,
+            gap_seconds=gap_seconds,
+            error_message=error_message,
+        )
+        await session.commit()
+
+    return QueryStatsResult(
+        run_id=run_id,
+        status=status,
+        overhead_ms=overhead_ms,
+        queries_seen=queries_seen,
+        deltas_written=deltas_written,
         gap_detected=gap_detected,
         gap_seconds=gap_seconds,
         error_message=error_message,

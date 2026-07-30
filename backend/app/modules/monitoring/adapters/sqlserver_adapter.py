@@ -21,10 +21,12 @@ from datetime import datetime
 import pytds
 
 from ..engine_adapter import (
+    ActiveSessionRow,
     Engine,
     EngineAdapter,
     EngineCapabilities,
     InstanceConnectionParams,
+    QueryStatRow,
     TrivialSample,
 )
 
@@ -88,6 +90,21 @@ class SqlServerEngineAdapter(EngineAdapter):
 
     async def collect_trivial_sample(self, params: InstanceConnectionParams) -> TrivialSample:
         return await asyncio.to_thread(_collect_trivial_sample_sync, params)
+
+    async def collect_active_sessions(self, params: InstanceConnectionParams) -> list[ActiveSessionRow]:
+        # Phase 1 element 1, SQL Server half: deferred, not silently missing.
+        # Same shape as the PostgreSQL implementation is planned --
+        # sys.dm_exec_requests joined to sys.dm_os_waiting_tasks for wait
+        # attribution -- but untested without a live SQL Server instance
+        # (same constraint noted in the module docstring for capability
+        # detection). See docs/plans/2026-07-30-phase1-diagnostic-core.md.
+        raise NotImplementedError("SqlServerEngineAdapter.collect_active_sessions: Phase 1 sampler, SQL Server slice not yet implemented (see docs/plans/2026-07-30-phase1-diagnostic-core.md)")
+
+    async def collect_query_stats(self, params: InstanceConnectionParams) -> list[QueryStatRow]:
+        # Planned source: sys.dm_exec_query_stats, or Query Store when
+        # enabled (detected via `query_store` feature flag) for history
+        # beyond the DMV's cache-eviction-bound window.
+        raise NotImplementedError("SqlServerEngineAdapter.collect_query_stats: Phase 1 top-queries, SQL Server slice not yet implemented (see docs/plans/2026-07-30-phase1-diagnostic-core.md)")
 
 
 # Re-exported for tests that need to patch the sync entry points without

@@ -10,10 +10,12 @@ from __future__ import annotations
 import asyncpg
 
 from ..engine_adapter import (
+    ActiveSessionRow,
     Engine,
     EngineAdapter,
     EngineCapabilities,
     InstanceConnectionParams,
+    QueryStatRow,
     TrivialSample,
 )
 
@@ -65,5 +67,90 @@ class PostgresEngineAdapter(EngineAdapter):
             active_session_count: int = await conn.fetchval("SELECT count(*) FROM pg_stat_activity WHERE state = 'active' AND pid <> pg_backend_pid()")
             server_time = await conn.fetchval("SELECT now()")
             return TrivialSample(active_session_count=active_session_count, server_time=server_time)
+        finally:
+            await conn.close()
+
+    async def collect_active_sessions(self, params: InstanceConnectionParams) -> list[ActiveSessionRow]:
+        conn = await self._connect(params)
+        try:
+            # query_id (native query identity) needs PG14+ with compute_query_id
+            # on or pg_stat_statements loaded -- column may not exist on older
+            # servers or with the feature off, so fall back gracefully rather
+            # than erroring the whole sample (ADR §5 identity is best-effort,
+            # not a hard requirement for sampling to work at all).
+            try:
+                rows = await conn.fetch("""
+                    SELECT
+                        COALESCE(usename, '') AS db_user,
+                        COALESCE(application_name, '') AS application_name,
+                        COALESCE(host(client_addr), '') AS client_host,
+                        wait_event_type,
+                        wait_event,
+                        query,
+                        query_id::text AS engine_query_key
+                    FROM pg_stat_activity
+                    WHERE state = 'active' AND pid <> pg_backend_pid()
+                    """)
+            except asyncpg.exceptions.UndefinedColumnError:
+                rows = await conn.fetch("""
+                    SELECT
+                        COALESCE(usename, '') AS db_user,
+                        COALESCE(application_name, '') AS application_name,
+                        COALESCE(host(client_addr), '') AS client_host,
+                        wait_event_type,
+                        wait_event,
+                        query,
+                        NULL AS engine_query_key
+                    FROM pg_stat_activity
+                    WHERE state = 'active' AND pid <> pg_backend_pid()
+                    """)
+
+            return [
+                ActiveSessionRow(
+                    db_user=row["db_user"],
+                    application_name=row["application_name"],
+                    client_host=row["client_host"],
+                    wait_event_type=row["wait_event_type"],
+                    wait_event=row["wait_event"],
+                    query_text=row["query"],
+                    engine_query_key=row["engine_query_key"],
+                )
+                for row in rows
+            ]
+        finally:
+            await conn.close()
+
+    async def collect_query_stats(self, params: InstanceConnectionParams) -> list[QueryStatRow]:
+        conn = await self._connect(params)
+        try:
+            installed = await conn.fetchval("SELECT count(*) FROM pg_extension WHERE extname = 'pg_stat_statements'")
+            if not installed:
+                return []
+
+            rows = await conn.fetch("""
+                SELECT
+                    s.queryid::text AS engine_query_key,
+                    s.query AS normalized_text,
+                    s.calls,
+                    s.total_exec_time AS total_time_ms,
+                    s.rows,
+                    s.shared_blks_read,
+                    s.shared_blks_written
+                FROM pg_stat_statements s
+                JOIN pg_database d ON d.oid = s.dbid
+                WHERE d.datname = current_database() AND s.queryid IS NOT NULL
+                """)
+            return [
+                QueryStatRow(
+                    engine_query_key=row["engine_query_key"],
+                    normalized_text=row["normalized_text"],
+                    calls=row["calls"],
+                    total_time_ms=row["total_time_ms"],
+                    rows=row["rows"],
+                    shared_blks_read=row["shared_blks_read"],
+                    shared_blks_written=row["shared_blks_written"],
+                )
+                for row in rows
+            ]
         finally:
             await conn.close()

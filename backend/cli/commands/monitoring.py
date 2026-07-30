@@ -1,10 +1,12 @@
 """Monitoring domain CLI commands: register instances, run the trivial
-collector, and maintain partitions.
+collector, the Phase 1 session sampler and query-stats collector, and
+maintain partitions.
 
 Roadmap Phase 0 exit criteria: "zarejestrowane dwie instancje ... trywialny
 kolektor zapisuje fakty ... narzut kolektora jest mierzony i widoczny" --
 these commands are the operational surface for that until a real scheduler
-and Web UI exist (Phase 2).
+and Web UI exist (Phase 2). `sample-sessions`/`collect-query-stats` are the
+Phase 1 elements 1/2 PostgreSQL slice (docs/plans/2026-07-30-phase1-diagnostic-core.md).
 """
 
 import asyncio
@@ -117,6 +119,44 @@ def collect(
 
     if result.status == "ok":
         console.print(f"[bold green]OK[/bold green] active_sessions={result.active_session_count} " f"overhead_ms={result.overhead_ms:.2f} clock_offset_ms={result.clock_offset_ms:.2f}")
+    else:
+        console.print(f"[bold red]ERROR[/bold red] {result.error_message}")
+
+    if result.gap_detected:
+        console.print(f"[yellow]Gap detected:[/yellow] {result.gap_seconds:.1f}s since expected previous run")
+
+
+@monitoring_app.command("sample-sessions")
+def sample_sessions(
+    instance_id: str = typer.Argument(..., help="Instance ID from list-instances"),
+    interval_ms: int = typer.Option(1_000, "--interval-ms", help="Expected cadence, used for gap detection"),
+) -> None:
+    """Run one ASH tick: snapshot active sessions with wait attribution (Phase 1 element 1, PostgreSQL only)."""
+    from app.modules.monitoring.collector import run_session_sample_collection
+
+    result = asyncio.run(run_session_sample_collection(instance_id, interval_ms=interval_ms))
+
+    if result.status == "ok":
+        console.print(f"[bold green]OK[/bold green] sessions={result.session_count} overhead_ms={result.overhead_ms:.2f}")
+    else:
+        console.print(f"[bold red]ERROR[/bold red] {result.error_message}")
+
+    if result.gap_detected:
+        console.print(f"[yellow]Gap detected:[/yellow] {result.gap_seconds:.1f}s since expected previous run")
+
+
+@monitoring_app.command("collect-query-stats")
+def collect_query_stats(
+    instance_id: str = typer.Argument(..., help="Instance ID from list-instances"),
+    interval_ms: int = typer.Option(60_000, "--interval-ms", help="Expected cadence, used for gap detection"),
+) -> None:
+    """Run one tick: pull pg_stat_statements deltas into query_stat_delta (Phase 1 element 2, PostgreSQL only)."""
+    from app.modules.monitoring.collector import run_query_stats_collection
+
+    result = asyncio.run(run_query_stats_collection(instance_id, interval_ms=interval_ms))
+
+    if result.status == "ok":
+        console.print(f"[bold green]OK[/bold green] queries_seen={result.queries_seen} deltas_written={result.deltas_written} overhead_ms={result.overhead_ms:.2f}")
     else:
         console.print(f"[bold red]ERROR[/bold red] {result.error_message}")
 

@@ -66,6 +66,8 @@ COMMAND_GROUPS = {
             "list-instances": "List registered instances",
             "detect-capabilities": "Detect and store engine capabilities for an instance",
             "collect": "Run one trivial collector tick against an instance",
+            "sample-sessions": "Run one ASH tick: active sessions with wait attribution (PostgreSQL)",
+            "collect-query-stats": "Run one tick: pg_stat_statements deltas into query_stat_delta (PostgreSQL)",
             "partitions-maintain": "Create upcoming partitions, drop expired ones",
         },
     },

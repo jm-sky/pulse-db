@@ -7,7 +7,14 @@ two under the same logo (vision.md §3.1).
 
 Scope for this increment: connection + capability detection + one trivial
 sample, enough to prove the seam end to end (roadmap Phase 0 exit criteria).
-The 1s ASH sampler itself is Phase 1.
+
+Phase 1 element 1 (active session sampler) and element 2 (query stats with
+history) add `collect_active_sessions` / `collect_query_stats` below --
+PostgreSQL implemented and validated locally
+(docs/plans/2026-07-30-phase1-diagnostic-core.md); SQL Server explicitly
+raises `NotImplementedError` for now rather than silently returning nothing
+(vision.md/roadmap.md rule: "dwie implementacje adaptera albo jawnie
+zadeklarowany brak wsparcia").
 """
 
 from __future__ import annotations
@@ -76,6 +83,48 @@ class TrivialSample:
     server_time: datetime
 
 
+@dataclass(frozen=True, slots=True)
+class ActiveSessionRow:
+    """One active session at sample time -- the raw material of `session_sample`.
+
+    `wait_event_type`/`wait_event` are both `None` when the backend is
+    running on CPU rather than waiting (PostgreSQL has no native "on CPU"
+    wait event; a NULL wait is how that's represented -- ADR §5).
+    `engine_query_key` is the engine's native query identity (PostgreSQL:
+    `pg_stat_activity.query_id`, present from PG14+ when `compute_query_id`
+    is on or `pg_stat_statements` is loaded) and may be `None` if the engine
+    can't supply one -- the collector falls back to hashing `query_text`
+    itself in that case (ADR §5, §10 risk on normalization).
+    """
+
+    db_user: str
+    application_name: str
+    client_host: str
+    wait_event_type: str | None
+    wait_event: str | None
+    query_text: str | None
+    engine_query_key: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class QueryStatRow:
+    """One query's *cumulative* stats since the engine's last stats reset.
+
+    Cumulative, not delta -- ADR §3 stores deltas on `query_stat_delta`, but
+    the engine (pg_stat_statements / Query Store) only ever exposes running
+    totals. Turning this into a delta is the collector's job
+    (`query_stat_cursor`, migration 070), not the adapter's.
+    """
+
+    engine_query_key: str
+    normalized_text: str
+    calls: int
+    total_time_ms: float
+    rows: int
+    shared_blks_read: int
+    shared_blks_written: int
+
+
 class EngineAdapter(ABC):
     """One adapter implementation per supported engine."""
 
@@ -88,3 +137,18 @@ class EngineAdapter(ABC):
     @abstractmethod
     async def collect_trivial_sample(self, params: InstanceConnectionParams) -> TrivialSample:
         """Take one minimal, cheap sample -- proves the collector path end to end."""
+
+    @abstractmethod
+    async def collect_active_sessions(self, params: InstanceConnectionParams) -> list[ActiveSessionRow]:
+        """Snapshot every currently-active session with its wait state (Phase 1 element 1).
+
+        ADR §5 correctness rule: only sessions actually doing work are
+        sampled -- idle sessions are excluded at the source, not filtered
+        downstream.
+        """
+
+    @abstractmethod
+    async def collect_query_stats(self, params: InstanceConnectionParams) -> list[QueryStatRow]:
+        """Snapshot cumulative per-query stats (Phase 1 element 2). Empty list if the
+        engine's stats source (pg_stat_statements / Query Store) isn't enabled --
+        never an error, since it's an optional capability (see docs/grants.md)."""

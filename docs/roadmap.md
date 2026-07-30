@@ -155,6 +155,16 @@ Kolejność nie jest dowolna: sampler pierwszy, bo to jest produkt; zapytania za
 - detekcja zmiany planu wyłapuje zmianę wywołaną ręcznie w teście
 - rekomendacja indeksu zawiera dowody i DDL, nie samo „dodaj indeks"
 
+### Stan na 2026-07-30
+
+| Element | Stan |
+|---|---|
+| 1. Sampler aktywnych sesji, atrybucja wait → sesja → zapytanie | 🟡 **PostgreSQL**: `collect_active_sessions` (`pg_stat_activity`), zweryfikowane end-to-end lokalnie z realnym lockiem (jedna sesja `Lock:transactionid`, druga na `Timeout:PgSleep` — nieznany wait, auto-zarejestrowany jako `other`, zbieranie nie padło). `pg_wait_sampling` opcjonalny fallback: nie zaimplementowany. **SQL Server**: `NotImplementedError`, jawnie zadeklarowany brak wsparcia — nie zaczęte. Harmonogram 1 s (ciągła pętla) nie istnieje — to nadal pojedynczy tick przez CLI, jak trywialny kolektor |
+| 2. Top queries z historią | 🟡 **PostgreSQL**: `collect_query_stats` (`pg_stat_statements`), delta liczona względem `query_stat_cursor` (migracja 070), zweryfikowana end-to-end lokalnie (drugi przebieg poprawnie zwrócił deltę względem pierwszego). **SQL Server**: `NotImplementedError` — DMV/Query Store nie zaimplementowane |
+| 3–7 | ❌ nie zaczęte |
+
+Szczegóły: [plan Fazy 1 — rdzeń diagnostyczny, slice PostgreSQL](plans/2026-07-30-phase1-diagnostic-core.md).
+
 ---
 
 ## 5. Faza 2 — interfejsy (12 tyg.)

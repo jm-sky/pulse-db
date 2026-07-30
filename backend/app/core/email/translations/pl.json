@@ -1,0 +1,68 @@
+{
+  "welcome": {
+    "title": "Witamy - {{ app_name }}",
+    "subject": "Witamy w {{ app_name }}!",
+    "heading": "Witamy, {{ name }}!",
+    "thank_you": "Dziękujemy za dołączenie do {{ app_name }}. Cieszymy się, że jesteś z nami!",
+    "account_created": "Twoje konto zostało pomyślnie utworzone z adresem email: <strong>{{ email }}</strong>",
+    "start_using": "Możesz teraz zacząć korzystać ze wszystkich dostępnych funkcji.",
+    "go_to_dashboard": "Przejdź do Panelu",
+    "questions": "Jeśli masz pytania, skontaktuj się z naszym zespołem wsparcia."
+  },
+  "email_verification": {
+    "title": "Zweryfikuj swój email - {{ app_name }}",
+    "subject": "Zweryfikuj swój adres email - {{ app_name }}",
+    "heading": "Zweryfikuj swój email",
+    "hi": "Cześć {{ name }},",
+    "thanks": "Dziękujemy za rejestrację w {{ app_name }}! Zanim będziesz mógł korzystać ze wszystkich funkcji, musimy potwierdzić, że ten adres email należy do Ciebie.",
+    "verify_button": "Zweryfikuj adres email",
+    "copy_link": "Jeśli przycisk nie działa, skopiuj i wklej ten link do przeglądarki:",
+    "expires": "Ten link jest ważny przez następne {{ expires_hours }} godzin(y).",
+    "ignore": "Jeśli nie utworzyłeś konta, możesz zignorować ten email."
+  },
+  "password_reset": {
+    "title": "Reset hasła - {{ app_name }}",
+    "subject": "Prośba o reset hasła - {{ app_name }}",
+    "heading": "Prośba o reset hasła",
+    "hello": "Witaj {{ name }},",
+    "received": "Otrzymaliśmy prośbę o reset hasła dla konta powiązanego z <strong>{{ email }}</strong>.",
+    "click_button": "Kliknij przycisk poniżej, aby zresetować hasło:",
+    "reset_button": "Resetuj hasło",
+    "copy_link": "Lub skopiuj i wklej ten link do przeglądarki:",
+    "important": "⚠️ Ważne:",
+    "expires_in": "Ten link wygaśnie za {{ expires_hours }} godzin(y)",
+    "didnt_request": "Jeśli nie prosiłeś o reset hasła, zignoruj ten email",
+    "unchanged": "Twoje hasło pozostanie niezmienione, jeśli nie klikniesz linku",
+    "concerns": "Jeśli masz obawy dotyczące bezpieczeństwa swojego konta, skontaktuj się natychmiast z pomocą techniczną."
+  },
+  "password_changed": {
+    "title": "Hasło zmienione - {{ app_name }}",
+    "subject": "Hasło zmienione - {{ app_name }}",
+    "heading": "Hasło zostało pomyślnie zmienione",
+    "hello": "Witaj {{ name }},",
+    "success": "Twoje hasło zostało pomyślnie zmienione.",
+    "account": "Konto:",
+    "ip_address": "Adres IP:",
+    "security_notice": "⚠️ Powiadomienie bezpieczeństwa:",
+    "didnt_make_change": "Jeśli nie dokonałeś tej zmiany, proszę:",
+    "change_immediately": "Zmień hasło natychmiast",
+    "review_security": "Przejrzyj ustawienia bezpieczeństwa konta",
+    "contact_support": "Skontaktuj się z pomocą techniczną, jeśli podejrzewasz nieautoryzowany dostęp",
+    "manage_account": "Zarządzaj kontem"
+  },
+  "account_deleted": {
+    "title": "Konto usunięte - {{ app_name }}",
+    "subject": "Konto usunięte - {{ app_name }}",
+    "heading": "Potwierdzenie usunięcia konta",
+    "hello": "Witaj {{ name }},",
+    "success": "Twoje konto zostało pomyślnie usunięte.",
+    "account": "Konto:",
+    "sorry": "Przepraszamy, że odchodzisz. Twoje konto i wszystkie powiązane dane zostały usunięte z naszego systemu zgodnie z Twoją prośbą.",
+    "questions": "Jeśli masz pytania lub jeśli zostało to zrobione przez pomyłkę, skontaktuj się jak najszybciej z naszym zespołem wsparcia.",
+    "didnt_request": "Jeśli nie prosiłeś o usunięcie, skontaktuj się natychmiast z pomocą techniczną."
+  },
+  "common": {
+    "footer_automated": "To jest automatyczna wiadomość email. Proszę nie odpowiadać na tę wiadomość.",
+    "footer_visit": "Odwiedź {{ app_name }}"
+  }
+}

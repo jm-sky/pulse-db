@@ -1,0 +1,48 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 500 500">
+  <!-- Background circle with primary/10 -->
+  <circle cx="250" cy="250" r="240" fill="rgba(238, 97, 15, 0.1)"/>
+
+  <!-- Lucide Backpack Icon (scaled and centered) -->
+  <g transform="translate(130, 130) scale(8.5)">
+    <path
+      d="M4 10a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2z"
+      fill="none"
+      stroke="rgb(238, 97, 15)"
+      stroke-width="2"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+    />
+    <path
+      d="M9 6V4a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2"
+      fill="none"
+      stroke="rgb(238, 97, 15)"
+      stroke-width="2"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+    />
+    <path
+      d="M8 21v-5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v5"
+      fill="none"
+      stroke="rgb(238, 97, 15)"
+      stroke-width="2"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+    />
+    <path
+      d="M8 10h8"
+      fill="none"
+      stroke="rgb(238, 97, 15)"
+      stroke-width="2"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+    />
+    <path
+      d="M8 18h8"
+      fill="none"
+      stroke="rgb(238, 97, 15)"
+      stroke-width="2"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+    />
+  </g>
+</svg>

@@ -1,0 +1,110 @@
+services:
+  app:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    image: pulse-db-backend:latest
+    container_name: pulse-db-app
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    env_file:
+      # Secrets and app config live here. Do not re-list them under environment:
+      # with ${VAR} — empty host interpolation would override env_file values.
+      - ./backend/.env
+    environment:
+      # Docker-network overrides only
+      - ENVIRONMENT=${ENVIRONMENT:-production}
+      - PROJECT_NAME=${PROJECT_NAME:-pulse-db}
+      - APP_PORT=${APP_PORT:-8000}
+      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-backend}:${POSTGRES_PASSWORD:-changeme}@db:5432/${POSTGRES_DB:-pulse_db}
+      - REDIS_URL=redis://:${REDIS_PASSWORD:-changeme}@redis:6379/0
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+    ports:
+      - "127.0.0.1:${APP_PORT:-8000}:8000"
+    volumes:
+      - ./backend/app:/app/app:rw,delegated
+      - ./backend/scripts:/app/scripts:rw,delegated
+      - ./backend/tests:/app/tests:rw,delegated
+      - ./backend/migrations:/app/migrations:rw,delegated
+      - ./backend/main.py:/app/main.py:rw,delegated
+      - ./backend/cli:/app/cli:rw,delegated
+      - ./backend/cli.py:/app/cli.py:rw,delegated
+      - ./backend/pyproject.toml:/app/pyproject.toml:ro,delegated
+      - ./backend/seeds:/app/seeds:rw,delegated
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    logging:
+      driver: 'json-file'
+      options:
+        max-size: '10m'
+        max-file: '3'
+    networks:
+      - pulse-db-network
+
+  db:
+    image: postgres:17-alpine
+    container_name: pulse-db-db
+    restart: unless-stopped
+    environment:
+      - POSTGRES_DB=${POSTGRES_DB:-pulse_db}
+      - POSTGRES_USER=${POSTGRES_USER:-backend}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-changeme}
+    volumes:
+      - pulse_db_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-backend}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    logging:
+      driver: 'json-file'
+      options:
+        max-size: '10m'
+        max-file: '3'
+    networks:
+      - pulse-db-network
+
+  redis:
+    image: redis:8-alpine
+    container_name: pulse-db-redis
+    restart: unless-stopped
+    environment:
+      - REDIS_PASSWORD=${REDIS_PASSWORD:-changeme}
+    volumes:
+      - pulse_db_redis_data:/data
+    command: >
+      redis-server
+      --appendonly yes
+      --requirepass ${REDIS_PASSWORD:-changeme}
+      --maxmemory 256mb
+      --maxmemory-policy allkeys-lru
+    healthcheck:
+      test: ["CMD", "sh", "-c", "redis-cli -a $${REDIS_PASSWORD:-changeme} ping | grep PONG"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    logging:
+      driver: 'json-file'
+      options:
+        max-size: '10m'
+        max-file: '3'
+    networks:
+      - pulse-db-network
+
+networks:
+  pulse-db-network:
+    name: pulse-db-network
+
+volumes:
+  pulse_db_postgres_data:
+    name: pulse_db_postgres_data
+  pulse_db_redis_data:
+    name: pulse_db_redis_data

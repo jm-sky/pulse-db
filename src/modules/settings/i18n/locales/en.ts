@@ -1,0 +1,147 @@
+export const settingsEn = {
+  settings: {
+    common: {
+      save: 'Save',
+      add: 'Add',
+      edit: 'Edit',
+      cancel: 'Cancel',
+    },
+    page: {
+      title: 'Settings',
+      subtitle: 'Manage your preferences',
+      save: 'Save',
+      error_prefix: 'Error loading settings',
+      sections: {
+        preferences: {
+          title: 'Preferences',
+          description: 'Manage your general preferences and settings',
+        },
+        theme: {
+          label: 'Theme',
+          subtitle: 'Choose light or dark theme',
+          placeholder: 'Select a theme',
+          group_label: 'Theme',
+          options: {
+            light: 'Light',
+            dark: 'Dark',
+          },
+        },
+        locale: {
+          label: 'Language',
+          subtitle: 'Language used across the interface',
+          placeholder: 'Select a language',
+          group_label: 'Language',
+          options: {
+            en: 'English',
+            pl: 'Polski',
+          },
+        },
+        profilePublic: {
+          label: 'Make Profile Public',
+          subtitle: 'Allow other authenticated users to view your public profile',
+        },
+        emailPublic: {
+          label: 'Show Email on Public Profile',
+          subtitle: 'Display your email address on your public profile (only if profile is public)',
+        },
+      },
+    },
+    security: {
+      title: 'Security',
+      description: 'Manage your account security and two-factor authentication',
+      setup: 'Enable 2FA',
+      manage: 'Manage 2FA',
+      login_required: 'Please log in to manage your security settings and two-factor authentication.',
+      not_configured: 'Two-factor authentication is not enabled. Enable it for enhanced security.',
+      totp: {
+        title: 'Authenticator App',
+        enabled: 'Enabled',
+        disabled: 'Not configured',
+      },
+      passkeys: {
+        title: 'Passkeys',
+        enabled: 'Enabled',
+        disabled: 'Not configured',
+        count: 'No passkeys registered | {count} passkey registered | {count} passkeys registered',
+      },
+      preferred_method: {
+        title: 'Preferred 2FA Method',
+        description: 'Set your preferred method to use for two-factor authentication',
+        label: 'Preferred Method',
+        placeholder: 'Select preferred method',
+        options: {
+          none: 'Automatic',
+          totp: 'Authenticator App',
+          webauthn: 'Passkeys',
+        },
+        saved: 'Preferred method updated',
+        error: 'Failed to update preferred method',
+      },
+    },
+    preferences: {
+      title: 'Preferences',
+      description: 'Manage your application preferences',
+      save: 'Save',
+      saved: 'Saved',
+      imageProcessingMode: {
+        label: 'Image Processing Mode',
+        subtitle: 'Choose how uploaded images are processed (resized and compressed)',
+        options: {
+          highQuality: 'High Quality',
+          highQualityDescription: 'Maximum size: 2560x2560px, JPEG quality: 95%. Best quality, larger file size.',
+          balanced: 'Balanced',
+          balancedDescription: 'Maximum size: 1200x1200px, JPEG quality: 90%. Good balance between quality and file size.',
+          storageSaver: 'Storage Saver',
+          storageSaverDescription: 'Maximum size: 800x800px, JPEG quality: 80%. Smaller file size, lower quality.',
+        },
+      },
+    },
+    oauth: {
+      title: 'OAuth Connections',
+      description: 'Manage linked OAuth accounts (Google, Facebook, etc.)',
+      login_required: 'Please log in to manage OAuth connections.',
+      no_connections: 'No linked OAuth accounts.',
+      providers: {
+        google: 'Google',
+        facebook: 'Facebook',
+      },
+      connection: {
+        linked: 'Connected',
+        deleted: 'OAuth connection has been removed',
+        confirm_delete: 'Are you sure you want to remove the connection to {provider}?',
+      },
+    },
+    storage: {
+      title: 'Storage Usage',
+      description: 'View your file storage usage and limits',
+      used: 'Used',
+      usagePercentage: 'Usage',
+      error: 'Unable to load storage information',
+    },
+    delete_account: {
+      title: 'Delete Account',
+      description: 'Permanently delete your account and all associated data',
+      warning_title: 'Warning: This action cannot be undone',
+      warning_1: 'All your data will be permanently deleted',
+      warning_2: 'You will lose access to all application data associated with your account',
+      warning_3: 'This action cannot be reversed',
+      button: 'Delete Account',
+      modal: {
+        title: 'Delete Account',
+        description: 'Are you sure you want to delete your account? This action cannot be undone.',
+        warning_title: 'Final Warning',
+        warning_text: 'Once you delete your account, all your data will be permanently removed and cannot be recovered.',
+        confirmation_label: 'Type DELETE to confirm',
+        confirmation_hint: 'Please type DELETE in the field above to confirm account deletion',
+        confirm_checkbox: 'I understand that this action cannot be undone and all my data will be permanently deleted',
+        cancel: 'Cancel',
+        delete_button: 'Delete Account',
+        success: 'Account deleted successfully',
+        errors: {
+          invalid_confirmation: 'Invalid confirmation. Please type DELETE to confirm.',
+          generic: 'Failed to delete account. Please try again.',
+        },
+      },
+    },
+  },
+}

@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+
+{% block title %}{% if t %}{{ translate('welcome.title') }}{% else %}Welcome - {{ app_name }}{% endif %}{% endblock %}
+
+{% block content %}
+<h1>{% if t %}{{ translate('welcome.heading') }}{% else %}Welcome, {{ name }}!{% endif %}</h1>
+<p>{% if t %}{{ translate('welcome.thank_you') }}{% else %}Thank you for joining {{ app_name }}. We're excited to have you on board!{% endif %}</p>
+<p>{% if t %}{{ translate('welcome.account_created') }}{% else %}Your account has been successfully created with the email: <strong>{{ email }}</strong>{% endif %}</p>
+<p>{% if t %}{{ translate('welcome.start_using') }}{% else %}You can now start using all the features available to you.{% endif %}</p>
+<a href="{{ frontend_url }}" class="button">{% if t %}{{ translate('welcome.go_to_dashboard') }}{% else %}Go to Dashboard{% endif %}</a>
+<p>{% if t %}{{ translate('welcome.questions') }}{% else %}If you have any questions, feel free to reach out to our support team.{% endif %}</p>
+{% endblock %}

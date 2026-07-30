@@ -1,0 +1,74 @@
+import { useMutation, useQuery, useQueryClient } from '@tanstack/vue-query'
+// modules/auth/composables/useTwoFactor.ts
+import { twoFactorService } from '@/modules/auth/services/twoFactorService'
+import type { ITwoFactorService, UpdatePreferredMethodRequest } from '@/modules/auth/types/twoFactor.type'
+
+// Query keys for 2FA
+export const twoFactorQueryKeys = {
+  all: ['2fa'] as const,
+  status: () => [...twoFactorQueryKeys.all, 'status'] as const,
+  totpStatus: () => [...twoFactorQueryKeys.all, 'totp', 'status'] as const,
+  webauthnStatus: () => [...twoFactorQueryKeys.all, 'webauthn', 'status'] as const,
+  passkeys: () => [...twoFactorQueryKeys.all, 'passkeys'] as const,
+}
+
+/**
+ * Hook for fetching 2FA status
+ */
+export function useTwoFactorStatus(service?: ITwoFactorService, options?: { enabled?: boolean }) {
+  return useQuery({
+    queryKey: twoFactorQueryKeys.status(),
+    queryFn: () => (service ?? twoFactorService).getTwoFactorStatus(),
+    staleTime: 5 * 60 * 1000, // 5 minutes
+    enabled: options?.enabled ?? true,
+  })
+}
+
+/**
+ * Hook for fetching TOTP status
+ */
+export function useTotpStatus(service?: ITwoFactorService) {
+  return useQuery({
+    queryKey: twoFactorQueryKeys.totpStatus(),
+    queryFn: () => (service ?? twoFactorService).getTotpStatus(),
+    staleTime: 5 * 60 * 1000, // 5 minutes
+  })
+}
+
+/**
+ * Hook for fetching WebAuthn status
+ */
+export function useWebAuthnStatus(service?: ITwoFactorService) {
+  return useQuery({
+    queryKey: twoFactorQueryKeys.webauthnStatus(),
+    queryFn: () => (service ?? twoFactorService).getWebAuthnStatus(),
+    staleTime: 5 * 60 * 1000, // 5 minutes
+  })
+}
+
+/**
+ * Hook for fetching passkeys list
+ */
+export function usePasskeys(service?: ITwoFactorService) {
+  return useQuery({
+    queryKey: twoFactorQueryKeys.passkeys(),
+    queryFn: () => (service ?? twoFactorService).listPasskeys(),
+    staleTime: 5 * 60 * 1000, // 5 minutes
+  })
+}
+
+/**
+ * Hook for updating preferred 2FA method
+ */
+export function useUpdatePreferredMethod(service?: ITwoFactorService) {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: (request: UpdatePreferredMethodRequest) =>
+      (service ?? twoFactorService).updatePreferredMethod(request),
+    onSuccess: () => {
+      // Invalidate 2FA status to refetch
+      void queryClient.invalidateQueries({ queryKey: twoFactorQueryKeys.status() })
+    },
+  })
+}

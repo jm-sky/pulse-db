@@ -1,0 +1,10 @@
+{
+  "json.schemas": [
+    {
+      "fileMatch": [
+        "backend/app/seeders/catalogue_items.json"
+      ],
+      "url": "./backend/app/seeders/catalogue_items.schema.json"
+    }
+  ]
+}

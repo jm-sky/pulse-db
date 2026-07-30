@@ -1,0 +1,6 @@
+ignoredBuiltDependencies:
+  - maplibre-gl
+
+onlyBuiltDependencies:
+  - esbuild
+  - vue-demi

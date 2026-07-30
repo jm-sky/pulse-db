@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+
+{% block title %}{% if t %}{{ translate('email_verification.title') }}{% else %}Verify your email - {{ app_name }}{% endif %}{% endblock %}
+
+{% block content %}
+<h1>{% if t %}{{ translate('email_verification.heading') }}{% else %}Verify your email{% endif %}</h1>
+<p>{% if t %}{{ translate('email_verification.hi') }}{% else %}Hi {{ name }},{% endif %}</p>
+
+<p>{% if t %}{{ translate('email_verification.thanks') }}{% else %}Thanks for registering with {{ app_name }}! Before you can start using all features, we need to confirm that this email address belongs to you.{% endif %}</p>
+
+<p>
+  <a class="button" href="{{ verification_link }}">{% if t %}{{ translate('email_verification.verify_button') }}{% else %}Verify email address{% endif %}</a>
+</p>
+
+<p>{% if t %}{{ translate('email_verification.copy_link') }}{% else %}If the button does not work, copy and paste this link into your browser:{% endif %}</p>
+<p><code>{{ verification_link }}</code></p>
+
+<p>{% if t %}{{ translate('email_verification.expires') }}{% else %}This link is valid for the next {{ expires_hours }} hours.{% endif %}</p>
+
+<p>{% if t %}{{ translate('email_verification.ignore') }}{% else %}If you did not create an account, you can ignore this email.{% endif %}</p>
+{% endblock %}

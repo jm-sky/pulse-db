@@ -1,0 +1,147 @@
+export const settingsPl = {
+  settings: {
+    common: {
+      save: 'Zapisz',
+      add: 'Dodaj',
+      edit: 'Edytuj',
+      cancel: 'Anuluj',
+    },
+    page: {
+      title: 'Ustawienia',
+      subtitle: 'Zarządzaj swoimi preferencjami',
+      save: 'Zapisz',
+      error_prefix: 'Błąd ładowania ustawień',
+      sections: {
+        preferences: {
+          title: 'Preferencje',
+          description: 'Zarządzaj ogólnymi preferencjami i ustawieniami',
+        },
+        theme: {
+          label: 'Motyw',
+          subtitle: 'Wybierz jasny lub ciemny motyw',
+          placeholder: 'Wybierz motyw',
+          group_label: 'Motyw',
+          options: {
+            light: 'Jasny',
+            dark: 'Ciemny',
+          },
+        },
+        locale: {
+          label: 'Język',
+          subtitle: 'Język używany w interfejsie',
+          placeholder: 'Wybierz język',
+          group_label: 'Język',
+          options: {
+            en: 'English',
+            pl: 'Polski',
+          },
+        },
+        profilePublic: {
+          label: 'Udostępnij profil publicznie',
+          subtitle: 'Pozwól innym zalogowanym użytkownikom przeglądać Twój publiczny profil',
+        },
+        emailPublic: {
+          label: 'Pokaż email w profilu publicznym',
+          subtitle: 'Wyświetlaj swój adres email w profilu publicznym (tylko jeśli profil jest publiczny)',
+        },
+      },
+    },
+    security: {
+      title: 'Bezpieczeństwo',
+      description: 'Zarządzaj bezpieczeństwem konta i uwierzytelnianiem dwuskładnikowym',
+      setup: 'Włącz 2FA',
+      manage: 'Zarządzaj 2FA',
+      login_required: 'Zaloguj się, aby zarządzać ustawieniami bezpieczeństwa i uwierzytelnianiem dwuskładnikowym.',
+      not_configured: 'Uwierzytelnianie dwuskładnikowe nie jest włączone. Włącz je dla lepszego bezpieczeństwa.',
+      totp: {
+        title: 'Aplikacja uwierzytelniająca',
+        enabled: 'Włączona',
+        disabled: 'Nie skonfigurowana',
+      },
+      passkeys: {
+        title: 'Klucze dostępu',
+        enabled: 'Włączone',
+        disabled: 'Nie skonfigurowane',
+        count: '{count} kluczy dostępu | {count} klucz dostępu | {count} klucze dostępu | {count} kluczy dostępu',
+      },
+      preferred_method: {
+        title: 'Preferowana metoda 2FA',
+        description: 'Ustaw preferowaną metodę uwierzytelniania dwuskładnikowego',
+        label: 'Preferowana metoda',
+        placeholder: 'Wybierz preferowaną metodę',
+        options: {
+          none: 'Automatycznie',
+          totp: 'Aplikacja uwierzytelniająca',
+          webauthn: 'Klucze dostępu',
+        },
+        saved: 'Zaktualizowano preferowaną metodę',
+        error: 'Nie udało się zaktualizować preferowanej metody',
+      },
+    },
+    preferences: {
+      title: 'Preferencje',
+      description: 'Zarządzaj preferencjami aplikacji',
+      save: 'Zapisz',
+      saved: 'Zapisano',
+      imageProcessingMode: {
+        label: 'Tryb przetwarzania obrazków',
+        subtitle: 'Wybierz sposób przetwarzania przesyłanych obrazków (zmiana rozmiaru i kompresja)',
+        options: {
+          highQuality: 'Wysoka jakość',
+          highQualityDescription: 'Maksymalny rozmiar: 2560x2560px, jakość JPEG: 95%. Najlepsza jakość, większy rozmiar pliku.',
+          balanced: 'Zbalansowany',
+          balancedDescription: 'Maksymalny rozmiar: 1200x1200px, jakość JPEG: 90%. Dobra równowaga między jakością a rozmiarem pliku.',
+          storageSaver: 'Oszczędny',
+          storageSaverDescription: 'Maksymalny rozmiar: 800x800px, jakość JPEG: 80%. Mniejszy rozmiar pliku, niższa jakość.',
+        },
+      },
+    },
+    oauth: {
+      title: 'Połączenia OAuth',
+      description: 'Zarządzaj powiązanymi kontami OAuth (Google, Facebook itp.)',
+      login_required: 'Zaloguj się, aby zarządzać połączeniami OAuth.',
+      no_connections: 'Brak powiązanych kont OAuth.',
+      providers: {
+        google: 'Google',
+        facebook: 'Facebook',
+      },
+      connection: {
+        linked: 'Połączone',
+        deleted: 'Połączenie OAuth zostało usunięte',
+        confirm_delete: 'Czy na pewno chcesz usunąć połączenie z {provider}?',
+      },
+    },
+    storage: {
+      title: 'Użycie miejsca',
+      description: 'Zobacz użycie i limity miejsca na pliki',
+      used: 'Użyto',
+      usagePercentage: 'Użycie',
+      error: 'Nie można załadować informacji o miejscu',
+    },
+    delete_account: {
+      title: 'Usuń konto',
+      description: 'Trwale usuń swoje konto i wszystkie powiązane dane',
+      warning_title: 'Ostrzeżenie: Ta akcja nie może być cofnięta',
+      warning_1: 'Wszystkie Twoje dane zostaną trwale usunięte',
+      warning_2: 'Utracisz dostęp do wszystkich danych aplikacji powiązanych z kontem',
+      warning_3: 'Ta akcja nie może być odwrócona',
+      button: 'Usuń konto',
+      modal: {
+        title: 'Usuń konto',
+        description: 'Czy na pewno chcesz usunąć swoje konto? Ta akcja nie może być cofnięta.',
+        warning_title: 'Ostatnie ostrzeżenie',
+        warning_text: 'Po usunięciu konta wszystkie Twoje dane zostaną trwale usunięte i nie będą mogły zostać odzyskane.',
+        confirmation_label: 'Wpisz DELETE aby potwierdzić',
+        confirmation_hint: 'Proszę wpisać DELETE w polu powyżej, aby potwierdzić usunięcie konta',
+        confirm_checkbox: 'Rozumiem, że ta akcja nie może być cofnięta i wszystkie moje dane zostaną trwale usunięte',
+        cancel: 'Anuluj',
+        delete_button: 'Usuń konto',
+        success: 'Konto zostało pomyślnie usunięte',
+        errors: {
+          invalid_confirmation: 'Nieprawidłowe potwierdzenie. Proszę wpisać DELETE aby potwierdzić.',
+          generic: 'Nie udało się usunąć konta. Proszę spróbować ponownie.',
+        },
+      },
+    },
+  },
+}

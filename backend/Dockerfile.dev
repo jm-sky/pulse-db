@@ -1,0 +1,39 @@
+# syntax=docker/dockerfile:1
+
+# Development Dockerfile with hot reload
+ARG PYTHON_VERSION=3.12
+FROM python:${PYTHON_VERSION}-slim
+
+# Prevents Python from writing pyc files
+ENV PYTHONDONTWRITEBYTECODE=1
+
+# Keeps Python from buffering stdout and stderr
+ENV PYTHONUNBUFFERED=1
+
+# Set working directory
+WORKDIR /app
+
+# Install system dependencies
+# libmagic is required for python-magic (MIME type detection)
+# libjpeg-dev, zlib1g-dev are recommended for Pillow image processing
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libmagic1 \
+    libmagic-dev \
+    libjpeg-dev \
+    zlib1g-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install dependencies
+COPY requirements.txt .
+RUN pip install --no-cache-dir --upgrade pip && pip install --no-cache-dir -r requirements.txt
+
+# Copy application code (will be overridden by volume mount)
+COPY app ./app
+COPY main.py ./main.py
+
+# Expose the port that the application listens on
+EXPOSE 8000
+
+# Run with reload enabled for development
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+

@@ -43,6 +43,9 @@ Założenia:
 - możliwość samodzielnego hostowania,
 - budowanie zaufania społeczności.
 
+Praktyczne konsekwencje klauzuli sieciowej AGPL dla self-hosted użycia:
+[docs/licensing-faq.md](docs/licensing-faq.md).
+
 ---
 
 ## Model biznesowy

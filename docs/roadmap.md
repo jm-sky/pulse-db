@@ -117,20 +117,20 @@ Nakłada się częściowo z planem [2026-07-30-boilerplate-from-family.md](plans
 | 1. Boilerplate: rebrand, inventory keep/drop | ✅ [plan zamknięty](plans/2026-07-30-boilerplate-from-family.md) |
 | 2. `LICENSE` AGPLv3 | ✅ obecny; `pyproject.toml` poprawiony z `MIT` na `AGPL-3.0-or-later` |
 | 2. CI (lint, typy, testy) | ✅ `.github/workflows/ci.yml` — 7 kroków, wszystkie egzekwowane ([issue 002](issues/2026-07-30--002--ci-continue-on-error.md)) |
-| 2. FAQ licencyjne | ❌ do napisania |
+| 2. FAQ licencyjne | ✅ [docs/licensing-faq.md](licensing-faq.md) |
 | 3. Auth użytkownik + hasło + RBAC, OAuth/2FA env-off | ✅ z boilerplate'u |
 | 4. Poświadczenia monitorowanych instancji szyfrowane | ✅ Fernet, klucz tylko w `CREDENTIALS_ENCRYPTION_KEY` — [`app/modules/monitoring/crypto.py`](../backend/app/modules/monitoring/crypto.py) |
 | 5. `EngineAdapter` z dwiema implementacjami | ✅ interfejs + Postgres (zweryfikowany end-to-end lokalnie) + SQL Server (zaimplementowany, **niezweryfikowany na żywej instancji** — brak dostępu w tym środowisku/CI) |
 | 6. Model danych: wymiary + fakty + szew zakresu | ✅ migracje [`068`](../backend/migrations/068_create_monitoring_dimensions.py)/[`069`](../backend/migrations/069_create_monitoring_facts.py), partycjonowanie deklaratywne dzienne zweryfikowane na lokalnym PostgreSQL 16 |
 | 7. Warstwa rollupów 1 min / 1 h | ❌ nie zaczęta — czeka na realne dane z samplera Fazy 1 żeby sensownie testować kardynalność top-N |
 | 8. Runtime kolektora: harmonogram, idempotencja, luki, narzut | 🟡 pomiar narzutu + jawne oznaczanie luk gotowe (`collector_run`); **harmonogram/scheduler** jeszcze nie — uruchamiane ręcznie przez `cli monitoring collect` |
-| 9. Wykrywanie nadmiarowych uprawnień + dokumentacja minimalnych grantów | 🟡 wykrywanie (`pg_monitor`, `VIEW SERVER STATE`/`VIEW DATABASE STATE`) gotowe przez `cli monitoring detect-capabilities`; dokumentacja operatorska do napisania |
+| 9. Wykrywanie nadmiarowych uprawnień + dokumentacja minimalnych grantów | ✅ wykrywanie (`pg_monitor`, `VIEW SERVER STATE`/`VIEW DATABASE STATE`) przez `cli monitoring detect-capabilities`; dokumentacja operatorska w [docs/grants.md](grants.md) |
 
 Porządki po boilerplate ([issue 001](issues/2026-07-30--001--boilerplate-dead-code-cleanup.md)) usunęły pozostałości domen `billing` / `tenants` / `feature_limits` / gear. Migracja [`067`](../backend/migrations/067_drop_openrouter_api_token.py) czeka na uruchomienie na bazie deweloperskiej.
 
 Szczegóły elementów 4–9: [plan Fazy 0 — fundament domenowy](plans/2026-07-30-phase0-foundation.md). Przy okazji naprawiony martwy import, który wywalał `create_app()` i cały pytest w CI od commitu, który miał to CI wprowadzić ([issue 004](issues/2026-07-30--004--dead-logs-import-broke-ci-pytest.md)) — status „CI w pełni egzekwowane" w tabeli powyżej był nieaktualny do tej naprawy.
 
-**Korekta estymaty:** elementy 1–3 były w praktyce gotowe przed startem fazy, więc **6 tygodni zostaje zredukowane do ~4** 🟡. Pozostały zakres: rollupy (element 7), harmonogram kolektora, dokumentacja grantów, walidacja SQL Server na żywej instancji.
+**Korekta estymaty:** elementy 1–3 były w praktyce gotowe przed startem fazy, więc **6 tygodni zostaje zredukowane do ~4** 🟡. Pozostały zakres: rollupy (element 7), harmonogram kolektora, walidacja SQL Server na żywej instancji.
 
 ---
 

@@ -1,0 +1,88 @@
+# Environment variables
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environments
+venv/
+ENV/
+env/
+.venv
+
+# Node / frontend
+node_modules/
+.pnpm-store/
+dist/
+dist-ssr/
+coverage/
+*.local
+
+# Logs
+*.log
+logs/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+test-results/
+playwright-report/
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+*.sql
+.backups/
+
+# Caches
+.eslintcache
+.mypy_cache/
+.ruff_cache/
+*.tsbuildinfo
+
+# Editor / IDE
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+*~
+.DS_Store
+
+# Claude / agent local overrides
+CLAUDE.local.md
+AGENTS.local.md

@@ -7,8 +7,8 @@ Ten katalog zawiera dokumentację robocza projektu PulseDB — patrz też [READM
 | Plik | Przeznaczenie | Status |
 |------|---------------|--------|
 | [vision.md](./vision.md) | Pozycjonowanie, ICP, zasady produktu, non-goals, licencja, kill criteria | `verification needed` |
-| `prd.md` | Persony, JTBD, wymagania funkcjonalne, kryteria akceptacji | *do napisania* |
-| `roadmap.md` | Fazy 0–2, sekwencja, granica MVP | *do napisania* |
+| [roadmap.md](./roadmap.md) | Fazy 0a–4, kryteria wyjścia, harmonogram, reguła cięcia | `verification needed` |
+| `prd.md` | Persony, JTBD, wymagania funkcjonalne, kryteria akceptacji | *do napisania (Faza 0a)* |
 
 Te dokumenty są **nadrzędne** wobec `plans/` — plan sprzeczny z `vision.md` wymaga najpierw zmiany wizji.
 

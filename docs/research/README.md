@@ -19,6 +19,7 @@ Analizy, spike'i, porównania i notatki zebrane przed podjęciem decyzji impleme
 | [competitors/datadog.md](competitors/datadog.md) | Platformy observability: Datadog, New Relic, Dynatrace, Grafana + eksportery | done |
 | [competitors/opensource.md](competitors/opensource.md) | OSS: PerformanceMonitor (Darling Data), PMM 3, pgwatch, Postgres MCP Pro i inne | done |
 | [competitors/idera-dbwatch.md](competitors/idera-dbwatch.md) | Idera SQL Diagnostic Manager · dbWatch Control Center | done |
+| [2026-07-30-chart-library.md](2026-07-30-chart-library.md) | ADR: wybór biblioteki wykresów Web UI — rekomendacja Apache ECharts, odrzucenie Highcharts/AG Charts Enterprise na licencji, unovis jako najbliższa alternatywa | verification needed |
 
 **Konwencja nazw:** korpus researchu konkurencji z 2026-07-30 używa nazw tematycznych bez prefiksu daty (zamiast `YYYY-MM-DD-slug.md`) — jest to zestaw dokumentów utrzymywanych i aktualizowanych cyklicznie (periodic review co 6 miesięcy), nie jednorazowe notatki. Nowe, jednorazowe analizy: `YYYY-MM-DD-slug.md`.
 

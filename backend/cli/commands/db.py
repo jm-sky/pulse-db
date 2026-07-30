@@ -33,7 +33,6 @@ def db_callback(ctx: typer.Context) -> None:
 MODEL_MODULES = [
     "app.modules.auth.db_models",
     "app.modules.users.db_models",
-    "app.modules.logs.db_models",
     "app.modules.settings.db_models",
     "app.modules.two_factor.db_models",
 ]

@@ -23,6 +23,8 @@ Uzasadnienie: [ADR modelu danych](../../docs/research/2026-07-30-data-model.md) 
 | `002` | Tabela `users` (uwierzytelnianie) | `app.modules.auth.db_models.UserDB` |
 | `066` | Kolumna `token_version` w `users` | `UserDB` |
 | `067` | Usunięcie kolumny `openrouter_api_token` z `users` | [issue 001](../../docs/issues/2026-07-30--001--boilerplate-dead-code-cleanup.md) |
+| `068` | Wymiary domeny monitoringu: `monitored_instance`, `monitored_database`, `query_text`, `query`, `plan_text`, `query_plan`, `wait_class` (+seed), `wait_event` (+seed), `session_attr` | [ADR modelu danych](../../docs/research/2026-07-30-data-model.md) §3 |
+| `069` | Fakty domeny monitoringu, partycjonowane dziennie: `session_sample`, `query_stat_delta`, `instance_metric`, `index_snapshot`, `collector_run` + zdarzeniowe/audytowe: `blocking_event`, `deadlock_event`, `deep_mode_window`, `recommendation`, `recommendation_outcome`, `action_audit` | [ADR modelu danych](../../docs/research/2026-07-30-data-model.md) §3, §6; [plan Fazy 0](../../docs/plans/2026-07-30-phase0-foundation.md) |
 
 Skok numeracji `002` → `066` jest zamierzony i odziedziczony z boilerplate'u
 (rodzina ops-monitor / gear-stack) — migracje domen, których PulseDB nie ma,

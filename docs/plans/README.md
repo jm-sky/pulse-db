@@ -10,7 +10,7 @@ Plany implementacji funkcji i większych zmian.
 
 | File | Summary | Status |
 |------|---------|--------|
-| [2026-07-30-boilerplate-from-family.md](2026-07-30-boilerplate-from-family.md) | Curated hybrid boilerplate z ops-monitor + `http_ssrf` z gear-stack | `verification needed` |
+| [2026-07-30-boilerplate-from-family.md](2026-07-30-boilerplate-from-family.md) | Curated hybrid boilerplate z ops-monitor + `http_ssrf` z gear-stack | `done` |
 
 When adding a new plan: create `YYYY-MM-DD-slug.md`, add a row here.
 

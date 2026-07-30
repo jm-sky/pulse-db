@@ -12,6 +12,17 @@ Ten katalog zawiera dokumentację robocza projektu PulseDB — patrz też [READM
 
 Te dokumenty są **nadrzędne** wobec `plans/` — plan sprzeczny z `vision.md` wymaga najpierw zmiany wizji.
 
+## ADR — decyzje architektoniczne
+
+Trzymane na razie w [`research/`](./research/README.md), bo katalog jest przeznaczony na analizy przed decyzją:
+
+| ADR | Rozstrzyga | Status |
+|-----|------------|--------|
+| [2026-07-30-data-model.md](./research/2026-07-30-data-model.md) | Model danych repozytorium — PostgreSQL 17 z partycjonowaniem, wymiary/fakty, rollupy, retencja, szew tenancy | `verification needed` |
+| [2026-07-30-chart-library.md](./research/2026-07-30-chart-library.md) | Biblioteka wykresów Web UI — rekomendacja **warunkowa**, rozstrzyga spike w Fazie 0a | `verification needed` |
+
+Przy trzecim ADR warto wydzielić `docs/adr/` z własnym indeksem.
+
 ## Workflow (issues, reviews, research, plans)
 
 | Katalog | Przeznaczenie |

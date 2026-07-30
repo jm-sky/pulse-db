@@ -358,6 +358,8 @@ Dwa działania obowiązkowe, bo AGPL ma koszt adopcji ⚠️:
 
 **Multi-tenancy jest warunkiem koniecznym Cloud**, nie osobną funkcją — dlatego szew tenancy powstaje w MVP (§5), a reszta razem z chmurą.
 
+**Billing i mechanika gatingu funkcji są nieprojektowane — świadomie.** Jednostka rozliczeniowa (per monitorowana instancja? per tenant? per użytkownik?) jest ❓ i zostanie rozstrzygnięta razem z krokiem 2 lub 3, nie wcześniej. Do tego czasu w repozytorium **nie ma i nie powinno być** rusztowania billingowego, limitów funkcji ani roszczeń tenantowych w tokenach — kod odziedziczony z rodziny boilerplate'u jest usuwany ([issue 001](issues/2026-07-30--001--boilerplate-dead-code-cleanup.md)). Powód nie jest estetyczny: to implementacja cudzej odpowiedzi na pytanie, którego jeszcze nie zadaliśmy, a w publicznym repozytorium AGPL martwe rusztowanie billingowe zaprasza pytanie „co tu trafi za paywall", zanim będziemy mieli odpowiedź.
+
 ### Rozważone i odrzucone: „klient otwiera dostęp na godzinę" ❌
 
 Pomysł: zamiast stałego tunelu klient otwiera dostęp sieciowy do bazy ad hoc, na czas analizy.

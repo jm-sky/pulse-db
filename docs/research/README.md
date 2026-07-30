@@ -20,6 +20,7 @@ Analizy, spike'i, porównania i notatki zebrane przed podjęciem decyzji impleme
 | [competitors/opensource.md](competitors/opensource.md) | OSS: PerformanceMonitor (Darling Data), PMM 3, pgwatch, Postgres MCP Pro i inne | done |
 | [competitors/idera-dbwatch.md](competitors/idera-dbwatch.md) | Idera SQL Diagnostic Manager · dbWatch Control Center | done |
 | [2026-07-30-chart-library.md](2026-07-30-chart-library.md) | ADR: wybór biblioteki wykresów Web UI — rekomendacja Apache ECharts, odrzucenie Highcharts/AG Charts Enterprise na licencji, unovis jako najbliższa alternatywa | verification needed |
+| [2026-07-30-data-model.md](2026-07-30-data-model.md) | ADR: model danych repozytorium — czysty PostgreSQL 17 z partycjonowaniem (odrzucone Timescale), wymiary/fakty, rollupy top-N, normalizacja waitów, szew tenancy. **Blokuje Fazę 0** | verification needed |
 
 **Konwencja nazw:** korpus researchu konkurencji z 2026-07-30 używa nazw tematycznych bez prefiksu daty (zamiast `YYYY-MM-DD-slug.md`) — jest to zestaw dokumentów utrzymywanych i aktualizowanych cyklicznie (periodic review co 6 miesięcy), nie jednorazowe notatki. Nowe, jednorazowe analizy: `YYYY-MM-DD-slug.md`.
 

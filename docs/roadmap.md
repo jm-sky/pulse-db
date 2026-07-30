@@ -32,13 +32,13 @@ T0 = 2026-07-30.
 | Faza | Zakres | Czas 🟡 | Koniec 🟡 |
 |---|---|---|---|
 | **0a** | Walidacja założeń, spike'i, ADR-y, PRD | 3 tyg. | 2026-08-20 |
-| **0** | Fundament: boilerplate, adapter, model danych, runtime kolektora | 6 tyg. | 2026-10-01 |
-| **1** | Rdzeń diagnostyczny: sampler, zapytania, plany, blokady, indeksy, baseline 1–2 | 14 tyg. | 2027-01-07 |
-| **2** | Interfejsy: CLI, MCP, Web UI, alerty, `/metrics` | 12 tyg. | 2027-04-01 |
-| **3** | Operacje podwyższonego ryzyka + rejestr rekomendacji | 5 tyg. | 2027-05-06 |
-| **4** | Przygotowanie premiery | 3 tyg. | 2027-05-27 |
+| **0** | Fundament: adapter, model danych, runtime kolektora (boilerplate ✅ gotowy) | ~~6~~ **4 tyg.** | 2026-09-17 |
+| **1** | Rdzeń diagnostyczny: sampler, zapytania, plany, blokady, indeksy, baseline 1–2 | 14 tyg. | 2026-12-24 |
+| **2** | Interfejsy: CLI, MCP, Web UI, alerty, `/metrics` | 12 tyg. | 2027-03-18 |
+| **3** | Operacje podwyższonego ryzyka + rejestr rekomendacji | 5 tyg. | 2027-04-22 |
+| **4** | Przygotowanie premiery | 3 tyg. | 2027-05-13 |
 
-**Suma: ~43 tygodnie ≈ 10 miesięcy.** Estymaty **nie zawierają rezerwy**. Przy typowym rozjeździe 30% MVP wypada na **wrzesień 2027**. Zastosowanie pełnej reguły cięcia z §7.2b zdejmuje ~8–10 tygodni → premiera ok. **marca 2027**.
+**Suma: ~41 tygodni ≈ 9,5 miesiąca.** Estymaty **nie zawierają rezerwy**. Przy typowym rozjeździe 30% MVP wypada na **wrzesień 2027**. Zastosowanie pełnej reguły cięcia z §7.2b zdejmuje ~8–10 tygodni → premiera ok. **marca 2027**.
 
 ⚠️ To jest dłużej niż wcześniejsze szacunki 6–9 miesięcy, bo zakres MVP wzrósł w sesji planistycznej (§7.2b vision). Liczba jest uczciwa, nie motywacyjna. Największa niepewność siedzi w Fazie 1 (sampler dla dwóch silników) i w UI Fazy 2 — obie mogą się rozjechać o ±30%.
 
@@ -109,6 +109,21 @@ Nakłada się częściowo z planem [2026-07-30-boilerplate-from-family.md](plans
 - trywialny kolektor zapisuje fakty, rollupy się liczą, luki są oznaczone
 - restart aplikacji nie psuje historii
 - narzut kolektora jest **mierzony i widoczny**
+
+### Stan na 2026-07-30
+
+| Element | Stan |
+|---|---|
+| 1. Boilerplate: rebrand, inventory keep/drop | ✅ [plan zamknięty](plans/2026-07-30-boilerplate-from-family.md) |
+| 2. `LICENSE` AGPLv3 | ✅ obecny; `pyproject.toml` poprawiony z `MIT` na `AGPL-3.0-or-later` |
+| 2. CI (lint, typy, testy) | ✅ `.github/workflows/ci.yml` — 7 kroków, wszystkie egzekwowane ([issue 002](issues/2026-07-30--002--ci-continue-on-error.md)) |
+| 2. FAQ licencyjne | ❌ do napisania |
+| 3. Auth użytkownik + hasło + RBAC, OAuth/2FA env-off | ✅ z boilerplate'u |
+| 4–9. Poświadczenia szyfrowane · `EngineAdapter` · model danych · rollupy · runtime kolektora · wykrywanie uprawnień | ❌ nie rozpoczęte — **odblokowane** przez [ADR modelu danych](research/2026-07-30-data-model.md) |
+
+Porządki po boilerplate ([issue 001](issues/2026-07-30--001--boilerplate-dead-code-cleanup.md)) usunęły pozostałości domen `billing` / `tenants` / `feature_limits` / gear. Migracja [`067`](../backend/migrations/067_drop_openrouter_api_token.py) czeka na uruchomienie na bazie deweloperskiej.
+
+**Korekta estymaty:** elementy 1–3 były w praktyce gotowe przed startem fazy, więc **6 tygodni zostaje zredukowane do ~4** 🟡. Pozostały zakres to wyłącznie fundament domenowy.
 
 ---
 

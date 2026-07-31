@@ -64,7 +64,7 @@ domenowym:
 
 ## Co zostaje
 
-- **Rollupy 1 min/1 h z watermarkiem i top-N+other** (ADR §6, roadmap element 7) — nie zaczęte. Blokada częściowo zdjęta: [plan Fazy 1](2026-07-30-phase1-diagnostic-core.md) dostarczył realne dane w `session_sample`/`query_stat_delta` (self-monitoring, zweryfikowane end-to-end), więc kardynalność da się już testować na czymś realnym, nie tylko syntetycznym. Implementacja rollupów wciąż nie zaczęta.
+- ~~Rollupy 1 min/1 h z watermarkiem i top-N+other~~ (ADR §6, roadmap element 7) — ✅ zaimplementowane, patrz [plan rollupów](2026-07-31-rollups.md). Ostatnia pozycja Fazy 0 bez zewnętrznego blokera jest zamknięta.
 - **Walidacja `SqlServerEngineAdapter` na żywej instancji SQL Server** — brak dostępnego SQL Servera w tym środowisku i w CI. Logika DMV/`HAS_PERMS_BY_NAME` jest napisana i pokryta testami z mockami, ale nieprzetestowana end-to-end. Ryzyko: nazwy kolumn/typy zwracane przez `pytds` mogą się różnić od założeń.
 - **Harmonogram/scheduler** dla kolektora — dziś uruchamiany ręcznie przez CLI (`cli monitoring collect`), nie ma jeszcze pętli/cron w aplikacji. Roadmap Faza 0 element 8 mówi o "harmonogramie" jako części runtime'u kolektora; to zostaje do momentu, gdy jest więcej niż jedna instancja do obsługi w praktyce.
 - ~~CI: `Frontend` → `Type check` czerwony na `develop`~~ — poza pierwotnym zakresem tej iteracji, ale naprawione przy okazji ([issue 005](../issues/2026-07-30--005--frontend-typecheck-red-on-develop.md)): brakujący `src/lib/` (`cn`, `copyToClipboard`, `valueUpdater`) i `requiresTwoFactorVerification`.

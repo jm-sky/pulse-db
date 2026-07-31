@@ -122,7 +122,7 @@ Nakłada się częściowo z planem [2026-07-30-boilerplate-from-family.md](plans
 | 4. Poświadczenia monitorowanych instancji szyfrowane | ✅ Fernet, klucz tylko w `CREDENTIALS_ENCRYPTION_KEY` — [`app/modules/monitoring/crypto.py`](../backend/app/modules/monitoring/crypto.py) |
 | 5. `EngineAdapter` z dwiema implementacjami | ✅ interfejs + Postgres (zweryfikowany end-to-end lokalnie) + SQL Server (zaimplementowany, **niezweryfikowany na żywej instancji** — brak dostępu w tym środowisku/CI) |
 | 6. Model danych: wymiary + fakty + szew zakresu | ✅ migracje [`068`](../backend/migrations/068_create_monitoring_dimensions.py)/[`069`](../backend/migrations/069_create_monitoring_facts.py), partycjonowanie deklaratywne dzienne zweryfikowane na lokalnym PostgreSQL 16 |
-| 7. Warstwa rollupów 1 min / 1 h | ❌ nie zaczęta — czeka na realne dane z samplera Fazy 1 żeby sensownie testować kardynalność top-N |
+| 7. Warstwa rollupów 1 min / 1 h | ✅ `ash_1m`/`ash_1h`/`query_stat_1h`, watermark + top-N+other, zweryfikowane end-to-end na lokalnym PostgreSQL 16 (self-monitoring) — [plan rollupów](plans/2026-07-31-rollups.md) |
 | 8. Runtime kolektora: harmonogram, idempotencja, luki, narzut | 🟡 pomiar narzutu + jawne oznaczanie luk gotowe (`collector_run`); **harmonogram/scheduler** jeszcze nie — uruchamiane ręcznie przez `cli monitoring collect` |
 | 9. Wykrywanie nadmiarowych uprawnień + dokumentacja minimalnych grantów | ✅ wykrywanie (`pg_monitor`, `VIEW SERVER STATE`/`VIEW DATABASE STATE`) przez `cli monitoring detect-capabilities`; dokumentacja operatorska w [docs/grants.md](grants.md) |
 
@@ -130,7 +130,7 @@ Porządki po boilerplate ([issue 001](issues/2026-07-30--001--boilerplate-dead-c
 
 Szczegóły elementów 4–9: [plan Fazy 0 — fundament domenowy](plans/2026-07-30-phase0-foundation.md). Przy okazji naprawiony martwy import, który wywalał `create_app()` i cały pytest w CI od commitu, który miał to CI wprowadzić ([issue 004](issues/2026-07-30--004--dead-logs-import-broke-ci-pytest.md)) — status „CI w pełni egzekwowane" w tabeli powyżej był nieaktualny do tej naprawy.
 
-**Korekta estymaty:** elementy 1–3 były w praktyce gotowe przed startem fazy, więc **6 tygodni zostaje zredukowane do ~4** 🟡. Pozostały zakres: rollupy (element 7), harmonogram kolektora, walidacja SQL Server na żywej instancji.
+**Korekta estymaty:** elementy 1–3 były w praktyce gotowe przed startem fazy, więc **6 tygodni zostaje zredukowane do ~4** 🟡. Pozostały zakres: harmonogram kolektora, walidacja SQL Server na żywej instancji — jedyna pozycja bez zewnętrznego blokera (rollupy, element 7) jest zamknięta.
 
 ---
 
@@ -262,7 +262,7 @@ Największa nierozwiązana luka projektu (§6 vision: *sam AGPLv3 nie generuje a
 
 ---
 
-## 11. Stan na koniec sesji 2026-07-30 i rekomendacja kolejnych kroków
+## 11. Stan na koniec sesji 2026-07-31 i rekomendacja kolejnych kroków
 
 **Gotowe do przejęcia przez kolejną sesję.** Poniżej zwięzły stan + priorytety, żeby nie trzeba było rekonstruować kontekstu z historii commitów.
 
@@ -270,18 +270,20 @@ Największa nierozwiązana luka projektu (§6 vision: *sam AGPLv3 nie generuje a
 
 | Obszar | Stan |
 |---|---|
-| Faza 0 (fundament) | Zasadniczo zamknięta. Zostają trzy pozycje, wszystkie z konkretnym blokerem — patrz [plan Fazy 0](plans/2026-07-30-phase0-foundation.md) „Co zostaje" |
+| Faza 0 (fundament) | Zasadniczo zamknięta, **łącznie z rollupami** (element 7 — patrz niżej). Zostają dwie pozycje, obie z konkretnym zewnętrznym blokerem — patrz [plan Fazy 0](plans/2026-07-30-phase0-foundation.md) „Co zostaje" |
+| Faza 0, element 7 (rollupy `ash_1m`/`ash_1h`/`query_stat_1h`) | ✅ zaimplementowane i zweryfikowane end-to-end na żywej instancji (self-monitoring): watermark per rollup, top-N+other, `ash_1h` liczony kaskadowo z `ash_1m`. Szczegóły: [plan rollupów](plans/2026-07-31-rollups.md) |
 | Faza 1, elementy 1–2 (sampler + top queries) | **PostgreSQL: zaimplementowane i zweryfikowane end-to-end** na żywej instancji (self-monitoring) — `pg_stat_activity` sampler, `pg_stat_statements` delty, plus opcjonalne źródło `pg_wait_sampling_history` (opt-in, `sample-wait-history`). **SQL Server: `NotImplementedError`, jawnie zadeklarowane, nie zaczęte.** Szczegóły: [plan Fazy 1](plans/2026-07-30-phase1-diagnostic-core.md) |
-| Faza 1, elementy 3–7 | Nie zaczęte |
+| Faza 1, elementy 3–7 | Nie zaczęte. Element 6 (porównanie okresów) i element 7 (baseline sezonowy) są teraz odblokowane danymi z rollupów |
 | Faza 0a (spike'e, wywiady, PRD) | Nie zaczęte — patrz §2 wyżej, wciąż otwarte od startu projektu |
 
 ### Rekomendacja — w tej kolejności
 
-1. **Rollupy (Faza 0 element 7, ADR §6)** — teraz odblokowane: `session_sample`/`query_stat_delta` mają realne dane do testowania kardynalności top-N+other, czego wcześniej brakowało. To zamyka ostatnią pozycję Fazy 0, którą da się zamknąć bez zewnętrznych zależności, i jest warunkiem taniej Fazy 1 elementu 6 („porównanie okresów — tanie, bo rollupy już są").
-2. **Harmonogram/scheduler dla kolektora (Faza 0 element 8)** — dziś wszystko to pojedyncze ticki przez CLI. Kryterium wyjścia z Fazy 1 („sampler pracuje 7 dni bez przerwy") wymaga pętli/cron, nie tylko funkcji kolekcji. Naturalnie następuje po rollupach, bo bez nich ciągłe zbieranie tylko powiększa surowe dane bez korzyści.
-3. **SQL Server, elementy 1–2 Fazy 1** — ten sam wzorzec co PostgreSQL (DMV + Query Store), zablokowane wyłącznie brakiem dostępnej instancji w tym środowisku/CI. **Priorytet, gdy tylko dostęp do SQL Servera się pojawi** — do tego czasu produkt jest jednosilnikowy mimo pozycjonowania „oba silniki, jeden panel" (§3.1 vision), co jest ryzykiem widocznym, nie ukrytym.
+1. **Harmonogram/scheduler dla kolektora i rollupów (Faza 0 element 8)** — dziś wszystko to pojedyncze ticki przez CLI, rollupy włącznie. Kryterium wyjścia z Fazy 1 („sampler pracuje 7 dni bez przerwy") wymaga pętli/cron, nie tylko funkcji kolekcji. Teraz naturalny priorytet #1 — rollupy (poprzednia pozycja #1) są zamknięte.
+2. **SQL Server, elementy 1–2 Fazy 1** — ten sam wzorzec co PostgreSQL (DMV + Query Store), zablokowane wyłącznie brakiem dostępnej instancji w tym środowisku/CI. **Priorytet, gdy tylko dostęp do SQL Servera się pojawi** — do tego czasu produkt jest jednosilnikowy mimo pozycjonowania „oba silniki, jeden panel" (§3.1 vision), co jest ryzykiem widocznym, nie ukrytym.
+3. **Faza 1, element 6** (porównanie okresów / regresja zapytania, baseline poziom 1) — tanie teraz, bo rollupy już są (dokładnie uzasadnienie z roadmapy §4). Naturalny następny krok po rollupach, przed elementami 3–5, bo jest najmniejszy i bezpośrednio konsumuje to, co właśnie powstało.
 4. **Faza 1, elementy 3–5** (plany wykonania + detekcja zmiany planu, blokady/deadlocki jako zdarzenia, analiza indeksów) — kolejność z roadmapy, niezmieniona.
-5. **Faza 0a** (wywiady z DBA, spike'i, PRD, ADR biblioteki wykresów) — formalnie wciąż przed Fazą 0 w kolejności roadmapy, ale praktycznie ominięta, bo praca techniczna ruszyła bez niej. Ryzyko nazwane wprost: **teza produktu („estate mieszane PG+SQL Server, przełączanie narzędzi boli") wciąż nie jest zweryfikowana rozmowami z użytkownikami** — cała inwestycja w SQL Server (pozycja 3 wyżej) stoi na założeniu, nie na potwierdzeniu. Warto rozważyć równolegle, nie odkładać w nieskończoność.
+5. **Faza 1, element 7** (baseline sezonowy percentylowy) — wymaga kilku tygodni realnej historii w `ash_1h`/`query_stat_1h`, nie tylko istnienia kodu rollupu; naturalnie później niż elementy 3–6.
+6. **Faza 0a** (wywiady z DBA, spike'e, PRD, ADR biblioteki wykresów) — formalnie wciąż przed Fazą 0 w kolejności roadmapy, ale praktycznie ominięta, bo praca techniczna ruszyła bez niej. Ryzyko nazwane wprost: **teza produktu („estate mieszane PG+SQL Server, przełączanie narzędzi boli") wciąż nie jest zweryfikowana rozmowami z użytkownikami** — cała inwestycja w SQL Server (pozycja 2 wyżej) stoi na założeniu, nie na potwierdzeniu. Warto rozważyć równolegle, nie odkładać w nieskończoność.
 
 ### Co NIE jest zalecane teraz
 

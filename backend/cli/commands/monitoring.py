@@ -1,17 +1,25 @@
 """Monitoring domain CLI commands: register instances, run the trivial
-collector, the Phase 1 session sampler and query-stats collector, and
-maintain partitions.
+collector, the Phase 1 session sampler and query-stats collector, maintain
+partitions, and run the scheduler that ties all of the above into a
+continuous process.
 
 Roadmap Phase 0 exit criteria: "zarejestrowane dwie instancje ... trywialny
 kolektor zapisuje fakty ... narzut kolektora jest mierzony i widoczny" --
-these commands are the operational surface for that until a real scheduler
-and Web UI exist (Phase 2). `sample-sessions`/`collect-query-stats` are the
-Phase 1 elements 1/2 PostgreSQL slice; `sample-wait-history` is the
-explicit-opt-in richer source on top of element 1
-(docs/plans/2026-07-30-phase1-diagnostic-core.md).
+these commands are the operational surface for that until a Web UI exists
+(Phase 2). `sample-sessions`/`collect-query-stats` are the Phase 1 elements
+1/2 PostgreSQL slice; `sample-wait-history` is the explicit-opt-in richer
+source on top of element 1 (docs/plans/2026-07-30-phase1-diagnostic-core.md).
+`rollup-*` are Phase 0 element 7 (docs/plans/2026-07-31-rollups.md) -- run
+`rollup-ash-1m` before `rollup-ash-1h`, since the hourly rollup reads the
+minute rollup, not raw session_sample. `run-scheduler` is Phase 0 element 8
+(docs/plans/2026-07-31-scheduler.md): runs every tick above on its own
+cadence, for every active instance, until stopped -- the long-running
+process a `docker compose up` deployment actually needs instead of someone
+re-invoking these commands by hand.
 """
 
 import asyncio
+import signal
 
 import typer
 from rich.console import Console
@@ -192,6 +200,72 @@ def sample_wait_history(
 
     if result.gap_detected:
         console.print(f"[yellow]Ring buffer overrun:[/yellow] ~{result.gap_seconds:.1f}s of history lost since last collection -- poll more often or accept the gap")
+
+
+@monitoring_app.command("rollup-ash-1m")
+def rollup_ash_1m(
+    instance_id: str = typer.Argument(..., help="Instance ID from list-instances"),
+    top_n: int = typer.Option(20, "--top-n", help="Heaviest (query, wait class) pairs kept per bucket; rest folds into one 'other' row"),
+) -> None:
+    """Roll closed 1-minute session_sample buckets into ash_1m (Phase 0 element 7, ADR §6)."""
+    from app.modules.monitoring.rollups import run_ash_1m_rollup
+
+    result = asyncio.run(run_ash_1m_rollup(instance_id, top_n=top_n))
+    console.print(f"[bold green]OK[/bold green] buckets_processed={result.buckets_processed} rows_written={result.rows_written} last_bucket={result.last_bucket}")
+
+
+@monitoring_app.command("rollup-ash-1h")
+def rollup_ash_1h(
+    instance_id: str = typer.Argument(..., help="Instance ID from list-instances"),
+    top_n: int = typer.Option(20, "--top-n", help="Heaviest (query, wait class) pairs kept per bucket; rest folds into one 'other' row"),
+) -> None:
+    """Roll closed 1-hour ash_1m buckets into ash_1h (Phase 0 element 7, ADR §6). Requires rollup-ash-1m to have run first."""
+    from app.modules.monitoring.rollups import run_ash_1h_rollup
+
+    result = asyncio.run(run_ash_1h_rollup(instance_id, top_n=top_n))
+    console.print(f"[bold green]OK[/bold green] buckets_processed={result.buckets_processed} rows_written={result.rows_written} last_bucket={result.last_bucket}")
+
+
+@monitoring_app.command("rollup-query-stats-1h")
+def rollup_query_stats_1h(
+    instance_id: str = typer.Argument(..., help="Instance ID from list-instances"),
+    top_n: int = typer.Option(20, "--top-n", help="Heaviest queries by total_time_ms kept per bucket; rest folds into one 'other' row"),
+) -> None:
+    """Roll closed 1-hour query_stat_delta buckets into query_stat_1h (Phase 0 element 7, ADR §6)."""
+    from app.modules.monitoring.rollups import run_query_stat_1h_rollup
+
+    result = asyncio.run(run_query_stat_1h_rollup(instance_id, top_n=top_n))
+    console.print(f"[bold green]OK[/bold green] buckets_processed={result.buckets_processed} rows_written={result.rows_written} last_bucket={result.last_bucket}")
+
+
+@monitoring_app.command("run-scheduler")
+def run_scheduler(
+    instance_refresh_seconds: float = typer.Option(300.0, "--instance-refresh-seconds", help="How often to re-poll the instance list for newly registered/deactivated instances"),
+    partitions_interval_seconds: float = typer.Option(3600.0, "--partitions-interval-seconds", help="How often to run partition maintenance"),
+) -> None:
+    """Run the continuous scheduler: every collector/rollup tick, for every active instance, until stopped.
+
+    Foreground process, intended as the container's long-running command
+    (see docker-compose.yml `scheduler` service) rather than an interactive
+    CLI invocation -- stop with SIGINT/SIGTERM for a clean shutdown (every
+    running tick loop is stopped and awaited before the process exits, no
+    dangling tasks).
+    """
+    from app.core.logging_config import configure_logging
+    from app.modules.monitoring.scheduler import Scheduler
+
+    configure_logging()
+    scheduler = Scheduler(instance_refresh_interval_seconds=instance_refresh_seconds, partitions_maintain_interval_seconds=partitions_interval_seconds)
+
+    async def _run() -> None:
+        loop = asyncio.get_running_loop()
+        for sig in (signal.SIGINT, signal.SIGTERM):
+            loop.add_signal_handler(sig, scheduler.stop)
+        console.print("[bold green]Scheduler started[/bold green] -- Ctrl+C or SIGTERM to stop")
+        await scheduler.run()
+        console.print("[bold]Scheduler stopped[/bold]")
+
+    asyncio.run(_run())
 
 
 @monitoring_app.command("partitions-maintain")

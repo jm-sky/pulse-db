@@ -488,6 +488,189 @@ async def set_wait_sampling_watermark(session: AsyncSession, *, instance_id: str
     )
 
 
+# --- Phase 0 element 7: rollups (ash_1m, ash_1h, query_stat_1h) -----------
+
+
+@dataclass(frozen=True, slots=True)
+class AshBucketRow:
+    query_id: str | None
+    wait_class_id: str | None
+    wait_seconds: float
+    sample_count: int
+
+
+@dataclass(frozen=True, slots=True)
+class QueryStatBucketRow:
+    query_id: str | None
+    calls: int
+    total_time_ms: float
+    rows_returned: int
+    shared_blks_read: int
+    shared_blks_written: int
+
+
+async def get_rollup_cursor(session: AsyncSession, *, instance_id: str, kind: str) -> datetime | None:
+    result = await session.execute(
+        text("SELECT watermark FROM rollup_cursor WHERE instance_id = :instance_id AND kind = :kind"),
+        {"instance_id": instance_id, "kind": kind},
+    )
+    row = result.first()
+    return row.watermark if row else None
+
+
+async def set_rollup_cursor(session: AsyncSession, *, instance_id: str, kind: str, watermark: datetime) -> None:
+    await session.execute(
+        text("""
+            INSERT INTO rollup_cursor (instance_id, kind, watermark, updated_at)
+            VALUES (:instance_id, :kind, :watermark, now())
+            ON CONFLICT (instance_id, kind) DO UPDATE SET watermark = EXCLUDED.watermark, updated_at = now()
+            """),
+        {"instance_id": instance_id, "kind": kind, "watermark": watermark},
+    )
+
+
+async def get_earliest_session_sample_at(session: AsyncSession, *, instance_id: str) -> datetime | None:
+    result = await session.execute(
+        text("SELECT MIN(sampled_at) AS earliest FROM session_sample WHERE instance_id = :instance_id"),
+        {"instance_id": instance_id},
+    )
+    return result.scalar_one_or_none()
+
+
+async def get_earliest_query_stat_delta_at(session: AsyncSession, *, instance_id: str) -> datetime | None:
+    result = await session.execute(
+        text("SELECT MIN(bucket_start) AS earliest FROM query_stat_delta WHERE instance_id = :instance_id"),
+        {"instance_id": instance_id},
+    )
+    return result.scalar_one_or_none()
+
+
+async def aggregate_session_sample_bucket(session: AsyncSession, *, instance_id: str, bucket_start: datetime, bucket_end: datetime) -> list[AshBucketRow]:
+    """Wait attribution for one raw bucket, grouped by (query, wait class).
+
+    Excludes idle rows by default (ADR §5's correctness rule: idle time is
+    never counted as waiting). Rows with no native wait event and
+    `is_idle = FALSE` are sessions actually running on CPU -- classified as
+    the `cpu` wait class even though there's no `wait_event` row for them.
+    """
+    result = await session.execute(
+        text("""
+            SELECT
+                ss.query_id AS query_id,
+                COALESCE(we.wait_class_id, 'cpu') AS wait_class_id,
+                SUM(ss.interval_ms) / 1000.0 AS wait_seconds,
+                COUNT(*) AS sample_count
+            FROM session_sample ss
+            LEFT JOIN wait_event we
+                ON we.engine = ss.wait_event_engine AND we.native_name = ss.wait_event_native_name
+            WHERE ss.instance_id = :instance_id
+                AND ss.sampled_at >= :bucket_start
+                AND ss.sampled_at < :bucket_end
+                AND ss.is_idle = FALSE
+            GROUP BY ss.query_id, COALESCE(we.wait_class_id, 'cpu')
+            """),
+        {"instance_id": instance_id, "bucket_start": bucket_start, "bucket_end": bucket_end},
+    )
+    return [AshBucketRow(query_id=row.query_id, wait_class_id=row.wait_class_id, wait_seconds=row.wait_seconds, sample_count=row.sample_count) for row in result]
+
+
+async def aggregate_ash_1m_bucket(session: AsyncSession, *, instance_id: str, bucket_start: datetime, bucket_end: datetime) -> list[AshBucketRow]:
+    """Rollup-of-rollup for `ash_1h`: re-group `ash_1m` rows covering one hour.
+
+    Cheaper than re-scanning raw `session_sample` for the hour, and keeps the
+    hourly top-N a genuine re-ranking rather than a second, independent
+    truncation -- prior `is_other` rows (query_id/wait_class_id both NULL)
+    naturally merge into one combined "other" contribution via GROUP BY,
+    which then competes fairly for the hour's own top N.
+    """
+    result = await session.execute(
+        text("""
+            SELECT query_id, wait_class_id, SUM(wait_seconds) AS wait_seconds, SUM(sample_count) AS sample_count
+            FROM ash_1m
+            WHERE instance_id = :instance_id
+                AND bucket_start >= :bucket_start
+                AND bucket_start < :bucket_end
+            GROUP BY query_id, wait_class_id
+            """),
+        {"instance_id": instance_id, "bucket_start": bucket_start, "bucket_end": bucket_end},
+    )
+    return [AshBucketRow(query_id=row.query_id, wait_class_id=row.wait_class_id, wait_seconds=row.wait_seconds, sample_count=row.sample_count) for row in result]
+
+
+async def insert_ash_rollup_row(session: AsyncSession, *, table: str, instance_id: str, bucket_start: datetime, row: AshBucketRow, is_other: bool) -> None:
+    """`table` is always one of the two internal constants ('ash_1m'/'ash_1h'), never user input."""
+    await session.execute(
+        text(f"""
+            INSERT INTO "{table}" (id, instance_id, bucket_start, query_id, wait_class_id, wait_seconds, sample_count, is_other)
+            VALUES (:id, :instance_id, :bucket_start, :query_id, :wait_class_id, :wait_seconds, :sample_count, :is_other)
+            """),
+        {
+            "id": generate_id(),
+            "instance_id": instance_id,
+            "bucket_start": bucket_start,
+            "query_id": row.query_id,
+            "wait_class_id": row.wait_class_id,
+            "wait_seconds": row.wait_seconds,
+            "sample_count": row.sample_count,
+            "is_other": is_other,
+        },
+    )
+
+
+async def aggregate_query_stat_delta_bucket(session: AsyncSession, *, instance_id: str, bucket_start: datetime, bucket_end: datetime) -> list[QueryStatBucketRow]:
+    result = await session.execute(
+        text("""
+            SELECT
+                query_id,
+                SUM(calls) AS calls,
+                SUM(total_time_ms) AS total_time_ms,
+                SUM(rows_returned) AS rows_returned,
+                SUM(shared_blks_read) AS shared_blks_read,
+                SUM(shared_blks_written) AS shared_blks_written
+            FROM query_stat_delta
+            WHERE instance_id = :instance_id
+                AND bucket_start >= :bucket_start
+                AND bucket_start < :bucket_end
+            GROUP BY query_id
+            """),
+        {"instance_id": instance_id, "bucket_start": bucket_start, "bucket_end": bucket_end},
+    )
+    return [
+        QueryStatBucketRow(
+            query_id=row.query_id,
+            calls=row.calls,
+            total_time_ms=row.total_time_ms,
+            rows_returned=row.rows_returned,
+            shared_blks_read=row.shared_blks_read,
+            shared_blks_written=row.shared_blks_written,
+        )
+        for row in result
+    ]
+
+
+async def insert_query_stat_1h_row(session: AsyncSession, *, instance_id: str, bucket_start: datetime, row: QueryStatBucketRow, is_other: bool) -> None:
+    await session.execute(
+        text("""
+            INSERT INTO query_stat_1h
+                (id, instance_id, bucket_start, query_id, calls, total_time_ms, rows_returned, shared_blks_read, shared_blks_written, is_other)
+            VALUES
+                (:id, :instance_id, :bucket_start, :query_id, :calls, :total_time_ms, :rows_returned, :shared_blks_read, :shared_blks_written, :is_other)
+            """),
+        {
+            "id": generate_id(),
+            "instance_id": instance_id,
+            "bucket_start": bucket_start,
+            "query_id": row.query_id,
+            "calls": row.calls,
+            "total_time_ms": row.total_time_ms,
+            "rows_returned": row.rows_returned,
+            "shared_blks_read": row.shared_blks_read,
+            "shared_blks_written": row.shared_blks_written,
+            "is_other": is_other,
+        },
+    )
+
+
 async def get_latest_clock_offset_ms(session: AsyncSession, *, instance_id: str) -> float | None:
     """Most recent measured `clock_offset_ms` for this instance (any collector_run kind).
 

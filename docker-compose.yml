@@ -49,6 +49,41 @@ services:
     networks:
       - pulse-db-network
 
+  scheduler:
+    # Same image as `app`, different command (roadmap Phase 0 element 8):
+    # runs `cli.py monitoring run-scheduler` -- the continuous collector/
+    # rollup process -- instead of serving the API. Separate container so
+    # scheduler crashes/restarts don't take the API down and vice versa.
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    image: pulse-db-backend:latest
+    container_name: pulse-db-scheduler
+    command: ["python", "cli.py", "monitoring", "run-scheduler"]
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    env_file:
+      - ./backend/.env
+    environment:
+      - ENVIRONMENT=${ENVIRONMENT:-production}
+      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-backend}:${POSTGRES_PASSWORD:-changeme}@db:5432/${POSTGRES_DB:-pulse_db}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+    volumes:
+      - ./backend/app:/app/app:rw,delegated
+      - ./backend/migrations:/app/migrations:rw,delegated
+      - ./backend/cli:/app/cli:rw,delegated
+      - ./backend/cli.py:/app/cli.py:rw,delegated
+      - ./backend/pyproject.toml:/app/pyproject.toml:ro,delegated
+    logging:
+      driver: 'json-file'
+      options:
+        max-size: '10m'
+        max-file: '3'
+    networks:
+      - pulse-db-network
+
   db:
     image: postgres:17-alpine
     container_name: pulse-db-db

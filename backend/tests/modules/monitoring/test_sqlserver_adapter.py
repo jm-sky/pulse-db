@@ -1,9 +1,7 @@
 """Tests for SqlServerEngineAdapter, mocking pytds (no real instance needed).
 
-Not exercised against a live SQL Server -- see
-docs/plans/2026-07-30-phase0-foundation.md for that follow-up. These tests
-pin down the query/parsing logic against the documented DMV/HAS_PERMS_BY_NAME
-shapes so a future live-instance check has something to compare against.
+Pins query/parsing logic against the documented DMV / fn_my_permissions
+shapes. Live-instance validation: docs/plans/2026-07-30-phase0-foundation.md.
 """
 
 from datetime import datetime
@@ -25,8 +23,14 @@ PARAMS = InstanceConnectionParams(
 
 
 class _FakeCursor:
-    def __init__(self, fetchone_values: list) -> None:
-        self._values = iter(fetchone_values)
+    """Scripted cursor: each execute() advances to the next (kind, payload).
+
+    kind is ``"one"`` (fetchone) or ``"all"`` (fetchall).
+    """
+
+    def __init__(self, script: list[tuple[str, object]]) -> None:
+        self._script = iter(script)
+        self._pending: tuple[str, object] | None = None
 
     def __enter__(self) -> "_FakeCursor":
         return self
@@ -35,15 +39,20 @@ class _FakeCursor:
         return None
 
     def execute(self, *_args: object, **_kwargs: object) -> None:
-        pass
+        self._pending = next(self._script)
 
-    def fetchone(self) -> tuple:
-        return next(self._values)
+    def fetchone(self) -> object:
+        assert self._pending is not None and self._pending[0] == "one"
+        return self._pending[1]
+
+    def fetchall(self) -> object:
+        assert self._pending is not None and self._pending[0] == "all"
+        return self._pending[1]
 
 
 class _FakeConnection:
-    def __init__(self, fetchone_values: list) -> None:
-        self._cursor = _FakeCursor(fetchone_values)
+    def __init__(self, script: list[tuple[str, object]]) -> None:
+        self._cursor = _FakeCursor(script)
 
     def __enter__(self) -> "_FakeConnection":
         return self
@@ -55,16 +64,24 @@ class _FakeConnection:
         return self._cursor
 
 
+def _capabilities_script(
+    *,
+    version: str = "16.0.1000.6",
+    query_store_state: str = "READ_WRITE",
+    server_perms: list[tuple[str, ...]] | None = None,
+    database_perms: list[tuple[str, ...]] | None = None,
+) -> list[tuple[str, object]]:
+    return [
+        ("one", (version,)),
+        ("one", (query_store_state,)),
+        ("all", server_perms if server_perms is not None else [("VIEW SERVER STATE",)]),
+        ("all", database_perms if database_perms is not None else [("VIEW DATABASE STATE",)]),
+    ]
+
+
 @pytest.mark.asyncio
 async def test_detect_capabilities_reports_query_store_and_grants() -> None:
-    fake_conn = _FakeConnection(
-        fetchone_values=[
-            ("16.0.1000.6",),  # ProductVersion
-            ("READ_WRITE",),  # query store actual_state_desc
-            (True,),  # VIEW SERVER STATE
-            (True,),  # VIEW DATABASE STATE
-        ]
-    )
+    fake_conn = _FakeConnection(_capabilities_script())
 
     with patch("app.modules.monitoring.adapters.sqlserver_adapter.pytds.connect", MagicMock(return_value=fake_conn)):
         capabilities = await SqlServerEngineAdapter().detect_capabilities(PARAMS)
@@ -77,18 +94,37 @@ async def test_detect_capabilities_reports_query_store_and_grants() -> None:
 
 @pytest.mark.asyncio
 async def test_detect_capabilities_query_store_off() -> None:
-    fake_conn = _FakeConnection(fetchone_values=[("16.0.1000.6",), ("OFF",), (False,), (False,)])
+    fake_conn = _FakeConnection(
+        _capabilities_script(query_store_state="OFF", server_perms=[], database_perms=[])
+    )
 
     with patch("app.modules.monitoring.adapters.sqlserver_adapter.pytds.connect", MagicMock(return_value=fake_conn)):
         capabilities = await SqlServerEngineAdapter().detect_capabilities(PARAMS)
 
     assert capabilities.features == {"query_store": False}
+    assert capabilities.grants == {"VIEW SERVER STATE": False, "VIEW DATABASE STATE": False}
+
+
+@pytest.mark.asyncio
+async def test_detect_capabilities_accepts_sql2022_performance_state() -> None:
+    """Granular SQL Server 2022 grant counts as VIEW SERVER STATE for our DMVs."""
+    fake_conn = _FakeConnection(
+        _capabilities_script(
+            server_perms=[("VIEW SERVER PERFORMANCE STATE",)],
+            database_perms=[("VIEW DATABASE STATE",)],
+        )
+    )
+
+    with patch("app.modules.monitoring.adapters.sqlserver_adapter.pytds.connect", MagicMock(return_value=fake_conn)):
+        capabilities = await SqlServerEngineAdapter().detect_capabilities(PARAMS)
+
+    assert capabilities.grants == {"VIEW SERVER STATE": True, "VIEW DATABASE STATE": True}
 
 
 @pytest.mark.asyncio
 async def test_collect_trivial_sample_returns_active_requests_and_server_time() -> None:
     server_time = datetime(2026, 7, 30, 12, 0, 0)
-    fake_conn = _FakeConnection(fetchone_values=[(2,), (server_time,)])
+    fake_conn = _FakeConnection([("one", (2,)), ("one", (server_time,))])
 
     with patch("app.modules.monitoring.adapters.sqlserver_adapter.pytds.connect", MagicMock(return_value=fake_conn)):
         sample = await SqlServerEngineAdapter().collect_trivial_sample(PARAMS)

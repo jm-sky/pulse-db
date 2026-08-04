@@ -4,6 +4,7 @@
 
 import { adminEn, adminPl } from '@/modules/admin/i18n'
 import { authEn, authPl } from '@/modules/auth/i18n'
+import { monitoringEn, monitoringPl } from '@/modules/monitoring/i18n'
 import { settingsEn, settingsPl } from '@/modules/settings/i18n'
 import { userEn, userPl } from '@/modules/user/i18n'
 import { createI18nInstance } from '@/shared/i18n'
@@ -14,6 +15,7 @@ const en = {
   ...registryEn,
   ...adminEn,
   ...authEn,
+  ...monitoringEn,
   ...settingsEn,
   ...userEn,
 }
@@ -21,6 +23,7 @@ const pl = {
   ...registryPl,
   ...adminPl,
   ...authPl,
+  ...monitoringPl,
   ...settingsPl,
   ...userPl,
 }

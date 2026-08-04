@@ -14,15 +14,14 @@ import {
   SidebarMenuItem,
   SidebarRail,
 } from '@/components/ui/sidebar'
-import { AuthRoutePaths } from '@/modules/auth/config/routes'
 import { PublicRoutePaths } from '@/router/publicRoutes'
 
 const { t } = useI18n()
 
 const mainLinks = [
   {
-    to: AuthRoutePaths.dashboard,
-    label: t('navigation.dashboard', 'Dashboard'),
+    to: '/waits',
+    label: t('monitoring.waits.title', 'Waits'),
     icon: LayoutDashboard,
   },
   {

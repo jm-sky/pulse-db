@@ -1,5 +1,7 @@
 # Idea: IDE-style / Desktop-style UI
 
+**Status:** `in progress` · **Shell slice:** [research](../research/2026-08-04-desktop-ui-shell.md) · [plan](../plans/2026-08-04-desktop-ui-shell.md)
+
 ## Opis
 
 Jednym z kierunków projektowania PulseDB jest odejście od klasycznego wyglądu aplikacji SaaS na rzecz interfejsu inspirowanego profesjonalnymi narzędziami desktopowymi używanymi przez administratorów baz danych i programistów.

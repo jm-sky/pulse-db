@@ -98,7 +98,7 @@ const handleLogout = () => {
         :aria-label="t('user.menu.title', 'User menu')"
         :class="cn(
           'cursor-pointer hover:brightness-95 transition-all duration-300',
-          'ml-2 md:ml-0',
+          'ml-4 md:ml-2',
           !isAuthenticated && 'ring-2 ring-muted-foreground/30',
           isAuthenticated && canAccessAdminPanel && 'ring-2 ring-primary ring-offset-2 ring-offset-background')"
       >

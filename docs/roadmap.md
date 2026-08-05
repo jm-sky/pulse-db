@@ -161,7 +161,8 @@ Kolejność nie jest dowolna: sampler pierwszy, bo to jest produkt; zapytania za
 |---|---|
 | 1. Sampler aktywnych sesji, atrybucja wait → sesja → zapytanie | ✅ **PostgreSQL**: `pg_stat_activity` + opt-in `pg_wait_sampling_history`. ✅ **SQL Server**: `dm_exec_requests`/`dm_exec_sessions` (filtr `is_user_process = 1`), zweryfikowane na **S2017 (test)** |
 | 2. Top queries z historią | ✅ **PostgreSQL**: `pg_stat_statements` + `query_stat_cursor`. ✅ **SQL Server**: `dm_exec_query_stats` + ten sam kursor/delta (Query Store wykrywany, nie jest jeszcze źródłem MVP) |
-| 3–7 | ❌ nie zaczęte |
+| 3–5, 7 | ❌ nie zaczęte |
+| 6. Porównanie okresów / regresja zapytania (baseline poziom 1) | ✅ API: `GET .../queries/period-comparison` + `GET .../period-comparison/summary` nad rollupami `query_stat_1h`/`ash_1h`; testy jednostkowe; walidacja E2E na żywych rollupach — `verification needed` |
 
 Szczegóły: [plan Fazy 1 — rdzeń diagnostyczny](plans/2026-07-30-phase1-diagnostic-core.md).
 
@@ -274,13 +275,14 @@ Największa nierozwiązana luka projektu (§6 vision: *sam AGPLv3 nie generuje a
 | Faza 0, element 7 (rollupy) | ✅ [plan rollupów](plans/2026-07-31-rollups.md) |
 | Faza 0, element 8 (harmonogram) | ✅ [plan schedulera](plans/2026-07-31-scheduler.md) — obie silniki dostają pełny zestaw ticków |
 | Faza 1, elementy 1–2 | ✅ **PostgreSQL + SQL Server** zaimplementowane i zweryfikowane end-to-end. [plan Fazy 1](plans/2026-07-30-phase1-diagnostic-core.md) |
-| Faza 1, elementy 3–7 | Nie zaczęte. Element 6 (porównanie okresów) odblokowany rollupami |
+| Faza 1, element 6 (porównanie okresów) | ✅ API + testy; walidacja E2E na rollupach — `verification needed`. [plan Fazy 1](plans/2026-07-30-phase1-diagnostic-core.md) |
+| Faza 1, elementy 3–5, 7 | Nie zaczęte |
 | Faza 0a (spike'e, wywiady, PRD) | Nie zaczęte — patrz §2; teza estate mieszanego nadal 🟡 |
 | Desktop UI shell | `in progress` — chrome + mock; [plan](plans/2026-08-04-desktop-ui-shell.md) |
 
 ### Rekomendacja — w tej kolejności
 
-1. **Faza 1, element 6** (porównanie okresów / regresja zapytania, baseline poziom 1) — tanie teraz, bo rollupy + obie silniki zasilają fakty. Naturalny następny krok bez zewnętrznego blokera.
+1. **Walidacja E2E elementu 6** na lokalnym PostgreSQL (self-monitoring) — uruchomić środowisko, sprawdzić endpointy period-comparison na realnych rollupach.
 2. **Faza 1, elementy 3–5** (plany wykonania + detekcja zmiany planu, blokady/deadlocki, analiza indeksów) — kolejność z roadmapy; SQL Server ma gotowe wzorce zapytań w `sql-monitor/collector/queries/`.
 3. **Faza 1, element 7** (baseline sezonowy percentylowy) — wymaga kilku tygodni historii w rollupach.
 4. **Faza 0a** (wywiady z DBA, PRD, ADR biblioteki wykresów) — równolegle; teza produktu wciąż niezweryfikowana rozmowami.

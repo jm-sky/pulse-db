@@ -13,7 +13,7 @@ import re
 from dataclasses import dataclass
 from datetime import datetime
 
-from sqlalchemy import text
+from sqlalchemy import bindparam, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.common.id_utils import generate_id
@@ -674,6 +674,166 @@ async def insert_query_stat_1h_row(session: AsyncSession, *, instance_id: str, b
             "is_other": is_other,
         },
     )
+
+
+# --- Phase 1 element 6: period comparison (baseline level 1) ----------------
+
+
+@dataclass(frozen=True, slots=True)
+class QueryPeriodAggregate:
+    query_id: str
+    calls: int
+    total_time_ms: float
+    rows_returned: int
+
+
+@dataclass(frozen=True, slots=True)
+class InstancePeriodAggregate:
+    calls: int
+    total_time_ms: float
+    rows_returned: int
+
+
+@dataclass(frozen=True, slots=True)
+class WaitPeriodAggregate:
+    wait_class_id: str | None
+    wait_seconds: float
+    sample_count: int
+    is_other: bool
+
+
+async def instance_exists(session: AsyncSession, *, instance_id: str) -> bool:
+    result = await session.execute(
+        text("SELECT 1 FROM monitored_instance WHERE id = :instance_id"),
+        {"instance_id": instance_id},
+    )
+    return result.first() is not None
+
+
+async def aggregate_query_stat_period(
+    session: AsyncSession,
+    *,
+    instance_id: str,
+    period_start: datetime,
+    period_end: datetime,
+) -> list[QueryPeriodAggregate]:
+    """Sum `query_stat_1h` per query for a half-open window [start, end).
+
+    Excludes the top-N overflow bucket (`is_other`) so comparisons stay at
+    per-query grain; queries outside top-N in a given hour simply have no
+    row for that hour (ADR §6 accepted trade-off).
+    """
+    result = await session.execute(
+        text("""
+            SELECT
+                qs.query_id AS query_id,
+                SUM(qs.calls)::bigint AS calls,
+                SUM(qs.total_time_ms) AS total_time_ms,
+                SUM(qs.rows_returned)::bigint AS rows_returned
+            FROM query_stat_1h qs
+            WHERE qs.instance_id = :instance_id
+                AND qs.bucket_start >= :period_start
+                AND qs.bucket_start < :period_end
+                AND qs.is_other = FALSE
+                AND qs.query_id IS NOT NULL
+            GROUP BY qs.query_id
+            """),
+        {"instance_id": instance_id, "period_start": period_start, "period_end": period_end},
+    )
+    return [
+        QueryPeriodAggregate(
+            query_id=row.query_id,
+            calls=int(row.calls),
+            total_time_ms=float(row.total_time_ms),
+            rows_returned=int(row.rows_returned),
+        )
+        for row in result
+    ]
+
+
+async def aggregate_instance_query_stat_period(
+    session: AsyncSession,
+    *,
+    instance_id: str,
+    period_start: datetime,
+    period_end: datetime,
+) -> InstancePeriodAggregate | None:
+    """Instance-wide totals from `query_stat_1h`, including the overflow bucket."""
+    result = await session.execute(
+        text("""
+            SELECT
+                SUM(calls)::bigint AS calls,
+                SUM(total_time_ms) AS total_time_ms,
+                SUM(rows_returned)::bigint AS rows_returned
+            FROM query_stat_1h
+            WHERE instance_id = :instance_id
+                AND bucket_start >= :period_start
+                AND bucket_start < :period_end
+            """),
+        {"instance_id": instance_id, "period_start": period_start, "period_end": period_end},
+    )
+    row = result.first()
+    if row is None or row.calls is None:
+        return None
+    return InstancePeriodAggregate(
+        calls=int(row.calls),
+        total_time_ms=float(row.total_time_ms),
+        rows_returned=int(row.rows_returned),
+    )
+
+
+async def aggregate_wait_period(
+    session: AsyncSession,
+    *,
+    instance_id: str,
+    period_start: datetime,
+    period_end: datetime,
+) -> list[WaitPeriodAggregate]:
+    """Sum `ash_1h` per wait class for a half-open window [start, end)."""
+    result = await session.execute(
+        text("""
+            SELECT
+                wait_class_id,
+                SUM(wait_seconds) AS wait_seconds,
+                SUM(sample_count)::bigint AS sample_count,
+                BOOL_OR(is_other) AS is_other
+            FROM ash_1h
+            WHERE instance_id = :instance_id
+                AND bucket_start >= :period_start
+                AND bucket_start < :period_end
+            GROUP BY wait_class_id
+            """),
+        {"instance_id": instance_id, "period_start": period_start, "period_end": period_end},
+    )
+    return [
+        WaitPeriodAggregate(
+            wait_class_id=row.wait_class_id,
+            wait_seconds=float(row.wait_seconds),
+            sample_count=int(row.sample_count),
+            is_other=bool(row.is_other),
+        )
+        for row in result
+    ]
+
+
+async def get_query_texts(session: AsyncSession, *, query_ids: list[str]) -> dict[str, str]:
+    if not query_ids:
+        return {}
+    result = await session.execute(
+        text("""
+            SELECT q.id AS query_id, qt.normalized_text
+            FROM query q
+            JOIN query_text qt ON qt.norm_hash = q.norm_hash
+            WHERE q.id IN :query_ids
+            """).bindparams(bindparam("query_ids", expanding=True)),
+        {"query_ids": query_ids},
+    )
+    return {row.query_id: row.normalized_text for row in result}
+
+
+async def get_wait_class_labels(session: AsyncSession) -> dict[str, str]:
+    result = await session.execute(text("SELECT id, label FROM wait_class"))
+    return {row.id: row.label for row in result}
 
 
 async def get_latest_clock_offset_ms(session: AsyncSession, *, instance_id: str) -> float | None:

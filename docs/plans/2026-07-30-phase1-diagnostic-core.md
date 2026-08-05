@@ -137,11 +137,30 @@ Testy jednostkowe (mockowane `pytds`, suite monitoring zielony) plus **walidacja
   uruchomiono kilka ticków diagnostycznych — instancja została natychmiast
   dezaktywowana (`is_active = false`). Kolejne testy wyłącznie na S2017.
 
+## Iteracja 2026-08-05 (b): element 6 — porównanie okresów (baseline poziom 1)
+
+Roadmap element 6: *porównanie okresów / regresja zapytania* — czyste SQL nad
+rollupami, które już są (vision §5 poziom 1).
+
+### Zrobione
+
+| # | Element | Gdzie |
+|---|---|---|
+| 6 | Porównanie okresów per zapytanie — agregacja `query_stat_1h` w dwóch oknach, delty `avg_time_ms`/calls/total, flaga `is_regression` | `period_comparison.py` + `repository.py` |
+| 6 | Podsumowanie instancji + wait-class z `query_stat_1h`/`ash_1h` | tamże |
+| 6 | API: `GET /api/monitoring/instances/{id}/queries/period-comparison`, `GET .../period-comparison/summary` + OpenAPI | `router.py`, `schemas.py`, `api/router.py` |
+| — | Testy jednostkowe (logika merge, mocki repozytorium, kontrakt API) | `tests/modules/monitoring/test_period_comparison.py` |
+
+### Walidacja
+
+Testy jednostkowe (mockowane repozytorium, 9 testów) plus **walidacja E2E na
+lokalnym PostgreSQL 16** — `verification needed` (wymaga uruchomionego
+środowiska z historią rollupów).
+
 ## Co zostaje
 
-- **Elementy 3–7 Fazy 1** (plany wykonania, blokady/deadlocki jako
-  zdarzenia, indeksy, baseline) — nie zaczęte. Element 6 (porównanie
-  okresów) jest odblokowany rollupami.
+- **Elementy 3–5, 7 Fazy 1** (plany wykonania, blokady/deadlocki jako
+  zdarzenia, indeksy, baseline sezonowy percentylowy) — nie zaczęte.
 - **Query Store jako źródło historii poza plan cache** — capability
   wykrywane, kolektor nadal na `dm_exec_query_stats` (jak
   `pg_stat_statements`). Osobna decyzja / iteracja.

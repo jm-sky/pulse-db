@@ -159,7 +159,8 @@ lokalnym PostgreSQL 16** — `verification needed` (wymaga uruchomionego
 
 ## Co zostaje
 
-- **Elementy 5, 7 Fazy 1** (analiza indeksów, baseline sezonowy percentylowy) — nie zaczęte.
+- **Element 7 Fazy 1** (baseline sezonowy percentylowy) — nie zaczęty.
+- **Element 5 (indeksy)** — ✅ [2026-08-05-index-analysis.md](2026-08-05-index-analysis.md).
 - **Element 3 (plany)** — ✅ [2026-08-05-query-plans.md](2026-08-05-query-plans.md).
 - **Element 4 (blokady/deadlocki)** — ✅ [2026-08-05-blocking-deadlocks.md](2026-08-05-blocking-deadlocks.md).
 - **Query Store jako źródło historii poza plan cache** — capability

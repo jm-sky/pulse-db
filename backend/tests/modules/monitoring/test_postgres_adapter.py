@@ -44,6 +44,7 @@ async def test_detect_capabilities_reports_installed_extensions_and_grants() -> 
         "pg_wait_sampling": False,
         "hypopg": False,
         "deadlock_history": False,
+        "missing_index_dmv": False,
     }
     assert capabilities.grants == {"pg_monitor": True, "superuser": True}
     conn.close.assert_awaited_once()

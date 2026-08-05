@@ -280,6 +280,29 @@ def collect_deadlocks(
         console.print(f"[yellow]Gap detected:[/yellow] {result.gap_seconds:.1f}s since expected previous run")
 
 
+@monitoring_app.command("collect-indexes")
+def collect_indexes(
+    instance_id: str = typer.Argument(..., help="Instance ID from list-instances"),
+    interval_ms: int = typer.Option(86_400_000, "--interval-ms", help="Expected cadence, used for gap detection"),
+) -> None:
+    """Run one tick: index inventory into index_snapshot + unused/missing recommendations.
+
+    Cadence is daily (24 h). SQL Server also surfaces missing-index DMV
+    suggestions; PostgreSQL inventory + unused only (Phase 1 element 5).
+    """
+    from app.modules.monitoring.collector import run_indexes_collection
+
+    result = asyncio.run(run_indexes_collection(instance_id, interval_ms=interval_ms))
+
+    if result.status == "ok":
+        console.print(f"[bold green]OK[/bold green] indexes_written={result.indexes_written} " f"recommendations_upserted={result.recommendations_upserted} " f"overhead_ms={result.overhead_ms:.2f}")
+    else:
+        console.print(f"[bold red]ERROR[/bold red] {result.error_message}")
+
+    if result.gap_detected:
+        console.print(f"[yellow]Gap detected:[/yellow] {result.gap_seconds:.1f}s since expected previous run")
+
+
 @monitoring_app.command("sample-wait-history")
 def sample_wait_history(
     instance_id: str = typer.Argument(..., help="Instance ID from list-instances"),

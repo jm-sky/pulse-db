@@ -1383,3 +1383,270 @@ async def get_deadlock_event(
         victim_query_id=row.victim_query_id,
         details=dict(row.details) if row.details else {},
     )
+
+
+# --- Phase 1 element 5: index inventory + recommendations --------------------
+
+
+@dataclass(frozen=True, slots=True)
+class IndexSnapshotRecord:
+    id: str
+    instance_id: str
+    database_name: str
+    schema_name: str
+    table_name: str
+    index_name: str
+    snapshot_at: datetime
+    size_bytes: int | None
+    scans: int | None
+    is_unused: bool
+    bloat_ratio: float | None
+
+
+@dataclass(frozen=True, slots=True)
+class RecommendationRecord:
+    id: str
+    instance_id: str
+    created_at: datetime
+    category: str
+    query_id: str | None
+    evidence: dict
+    ddl_suggestion: str | None
+    status: str
+
+
+def compute_recommendation_evidence_key(*, schema_name: str, table_name: str, index_or_columns: str) -> str:
+    """Canonical hash for recommendation dedup (instance_id, category, evidence_key)."""
+    payload = json.dumps(
+        {"schema": schema_name, "table": table_name, "index_or_columns": index_or_columns},
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+async def insert_index_snapshot(
+    session: AsyncSession,
+    *,
+    instance_id: str,
+    database_name: str,
+    schema_name: str,
+    table_name: str,
+    index_name: str,
+    snapshot_at: datetime,
+    size_bytes: int | None,
+    scans: int | None,
+    is_unused: bool,
+    bloat_ratio: float | None,
+) -> str:
+    snapshot_id = generate_id()
+    await session.execute(
+        text("""
+            INSERT INTO index_snapshot
+                (id, instance_id, database_name, schema_name, table_name, index_name,
+                 snapshot_at, size_bytes, scans, is_unused, bloat_ratio)
+            VALUES
+                (:id, :instance_id, :database_name, :schema_name, :table_name, :index_name,
+                 :snapshot_at, :size_bytes, :scans, :is_unused, :bloat_ratio)
+            """),
+        {
+            "id": snapshot_id,
+            "instance_id": instance_id,
+            "database_name": database_name,
+            "schema_name": schema_name,
+            "table_name": table_name,
+            "index_name": index_name,
+            "snapshot_at": snapshot_at,
+            "size_bytes": size_bytes,
+            "scans": scans,
+            "is_unused": is_unused,
+            "bloat_ratio": bloat_ratio,
+        },
+    )
+    return snapshot_id
+
+
+async def list_index_snapshots(
+    session: AsyncSession,
+    *,
+    instance_id: str,
+    snapshot_at: datetime | None = None,
+) -> list[IndexSnapshotRecord]:
+    """Latest inventory snapshot for an instance, or a specific snapshot_at."""
+    if snapshot_at is None:
+        result = await session.execute(
+            text("""
+                SELECT id, instance_id, database_name, schema_name, table_name, index_name,
+                       snapshot_at, size_bytes, scans, is_unused, bloat_ratio
+                FROM index_snapshot
+                WHERE instance_id = :instance_id
+                  AND snapshot_at = (
+                      SELECT MAX(snapshot_at) FROM index_snapshot WHERE instance_id = :instance_id
+                  )
+                ORDER BY schema_name, table_name, index_name
+                """),
+            {"instance_id": instance_id},
+        )
+    else:
+        result = await session.execute(
+            text("""
+                SELECT id, instance_id, database_name, schema_name, table_name, index_name,
+                       snapshot_at, size_bytes, scans, is_unused, bloat_ratio
+                FROM index_snapshot
+                WHERE instance_id = :instance_id AND snapshot_at = :snapshot_at
+                ORDER BY schema_name, table_name, index_name
+                """),
+            {"instance_id": instance_id, "snapshot_at": snapshot_at},
+        )
+    return [
+        IndexSnapshotRecord(
+            id=row.id,
+            instance_id=row.instance_id,
+            database_name=row.database_name,
+            schema_name=row.schema_name,
+            table_name=row.table_name,
+            index_name=row.index_name,
+            snapshot_at=row.snapshot_at,
+            size_bytes=row.size_bytes,
+            scans=row.scans,
+            is_unused=row.is_unused,
+            bloat_ratio=row.bloat_ratio,
+        )
+        for row in result
+    ]
+
+
+async def upsert_recommendation(
+    session: AsyncSession,
+    *,
+    instance_id: str,
+    category: str,
+    evidence_key: str,
+    evidence: dict,
+    ddl_suggestion: str | None,
+    query_id: str | None = None,
+) -> str:
+    """Dedup open recommendations by (instance_id, category, evidence_key).
+
+    If an open row exists, refresh evidence/ddl_suggestion. Otherwise insert.
+    Dismissed/applied rows are left alone (a new open rec can be created later).
+    """
+    evidence_with_key = {**evidence, "evidence_key": evidence_key}
+    existing = await session.execute(
+        text("""
+            SELECT id FROM recommendation
+            WHERE instance_id = :instance_id
+              AND category = :category
+              AND status = 'open'
+              AND evidence->>'evidence_key' = :evidence_key
+            LIMIT 1
+            """),
+        {"instance_id": instance_id, "category": category, "evidence_key": evidence_key},
+    )
+    row = existing.first()
+    if row is not None:
+        await session.execute(
+            text("""
+                UPDATE recommendation
+                SET evidence = CAST(:evidence AS jsonb),
+                    ddl_suggestion = :ddl_suggestion,
+                    query_id = COALESCE(:query_id, query_id)
+                WHERE id = :id
+                """),
+            {
+                "id": row.id,
+                "evidence": json.dumps(evidence_with_key),
+                "ddl_suggestion": ddl_suggestion,
+                "query_id": query_id,
+            },
+        )
+        return str(row.id)
+
+    rec_id = generate_id()
+    await session.execute(
+        text("""
+            INSERT INTO recommendation
+                (id, instance_id, category, query_id, evidence, ddl_suggestion, status)
+            VALUES
+                (:id, :instance_id, :category, :query_id, CAST(:evidence AS jsonb),
+                 :ddl_suggestion, 'open')
+            """),
+        {
+            "id": rec_id,
+            "instance_id": instance_id,
+            "category": category,
+            "query_id": query_id,
+            "evidence": json.dumps(evidence_with_key),
+            "ddl_suggestion": ddl_suggestion,
+        },
+    )
+    return rec_id
+
+
+async def list_recommendations(
+    session: AsyncSession,
+    *,
+    instance_id: str,
+    category: str | None = None,
+    status: str | None = "open",
+) -> list[RecommendationRecord]:
+    clauses = ["instance_id = :instance_id"]
+    params: dict = {"instance_id": instance_id}
+    if category is not None:
+        clauses.append("category = :category")
+        params["category"] = category
+    if status is not None:
+        clauses.append("status = :status")
+        params["status"] = status
+    where = " AND ".join(clauses)
+    result = await session.execute(
+        text(f"""
+            SELECT id, instance_id, created_at, category, query_id, evidence, ddl_suggestion, status
+            FROM recommendation
+            WHERE {where}
+            ORDER BY created_at DESC
+            """),
+        params,
+    )
+    return [
+        RecommendationRecord(
+            id=row.id,
+            instance_id=row.instance_id,
+            created_at=row.created_at,
+            category=row.category,
+            query_id=row.query_id,
+            evidence=dict(row.evidence) if row.evidence else {},
+            ddl_suggestion=row.ddl_suggestion,
+            status=row.status,
+        )
+        for row in result
+    ]
+
+
+async def get_recommendation(
+    session: AsyncSession,
+    *,
+    instance_id: str,
+    recommendation_id: str,
+) -> RecommendationRecord | None:
+    result = await session.execute(
+        text("""
+            SELECT id, instance_id, created_at, category, query_id, evidence, ddl_suggestion, status
+            FROM recommendation
+            WHERE instance_id = :instance_id AND id = :recommendation_id
+            """),
+        {"instance_id": instance_id, "recommendation_id": recommendation_id},
+    )
+    row = result.first()
+    if row is None:
+        return None
+    return RecommendationRecord(
+        id=row.id,
+        instance_id=row.instance_id,
+        created_at=row.created_at,
+        category=row.category,
+        query_id=row.query_id,
+        evidence=dict(row.evidence) if row.evidence else {},
+        ddl_suggestion=row.ddl_suggestion,
+        status=row.status,
+    )

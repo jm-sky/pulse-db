@@ -145,4 +145,5 @@ zielonym statusie kolektora zwykle oznacza idle bazę, nie błąd połączenia
 - [plans/2026-07-30-phase0-foundation.md](plans/2026-07-30-phase0-foundation.md)
 - [plans/2026-08-05-query-plans.md](plans/2026-08-05-query-plans.md) — opcjonalny SELECT pod EXPLAIN
 - [plans/2026-08-05-blocking-deadlocks.md](plans/2026-08-05-blocking-deadlocks.md) — blocking + SS deadlocks
+- [plans/2026-08-05-index-analysis.md](plans/2026-08-05-index-analysis.md) — inventory + unused/missing DDL
 - [`backend/app/modules/monitoring/adapters/postgres_adapter.py`](../backend/app/modules/monitoring/adapters/postgres_adapter.py), [`sqlserver_adapter.py`](../backend/app/modules/monitoring/adapters/sqlserver_adapter.py) — źródło `_RELEVANT_ROLES`/`_RELEVANT_PERMISSIONS` powyżej

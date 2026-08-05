@@ -72,6 +72,7 @@ COMMAND_GROUPS = {
             "collect-query-plans": "Run one tick: top-N execution plans into plan_text/query_plan",
             "collect-blocking": "Run one tick: active lock chains into blocking_event",
             "collect-deadlocks": "Run one tick: deadlock history into deadlock_event",
+            "collect-indexes": "Run one tick: index inventory + unused/missing recommendations",
             "sample-wait-history": "Richer-source ASH tick from pg_wait_sampling_history, opt-in (PostgreSQL)",
             "partitions-maintain": "Create upcoming partitions, drop expired ones",
             "rollup-ash-1m": "Roll closed 1-minute session_sample buckets into ash_1m",

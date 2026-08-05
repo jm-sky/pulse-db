@@ -96,7 +96,7 @@ async def test_detect_capabilities_reports_query_store_and_grants() -> None:
 
     assert capabilities.engine is Engine.SQLSERVER
     assert capabilities.version == "16.0.1000.6"
-    assert capabilities.features == {"query_store": True, "deadlock_history": True}
+    assert capabilities.features == {"query_store": True, "deadlock_history": True, "missing_index_dmv": True}
     assert capabilities.grants == {"VIEW SERVER STATE": True, "VIEW DATABASE STATE": True}
 
 
@@ -107,7 +107,7 @@ async def test_detect_capabilities_query_store_off() -> None:
     with patch("app.modules.monitoring.adapters.sqlserver_adapter.pytds.connect", MagicMock(return_value=fake_conn)):
         capabilities = await SqlServerEngineAdapter().detect_capabilities(PARAMS)
 
-    assert capabilities.features == {"query_store": False, "deadlock_history": False}
+    assert capabilities.features == {"query_store": False, "deadlock_history": False, "missing_index_dmv": True}
     assert capabilities.grants == {"VIEW SERVER STATE": False, "VIEW DATABASE STATE": False}
 
 

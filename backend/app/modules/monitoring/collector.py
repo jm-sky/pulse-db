@@ -26,6 +26,10 @@ top-N execution plans into `plan_text`/`query_plan` on a 10-minute cadence.
 `run_blocking_collection` / `run_deadlocks_collection` are Phase 1 element 4
 (docs/plans/2026-08-05-blocking-deadlocks.md): active lock chains and
 SQL Server system_health deadlock history.
+
+`run_indexes_collection` is Phase 1 element 5
+(docs/plans/2026-08-05-index-analysis.md): daily index inventory +
+unused/missing recommendations.
 """
 
 from __future__ import annotations
@@ -872,6 +876,173 @@ async def run_deadlocks_collection(instance_id: str, *, interval_ms: int = 60_00
         status=status,
         overhead_ms=overhead_ms,
         events_written=events_written,
+        gap_detected=gap_detected,
+        gap_seconds=gap_seconds,
+        error_message=error_message,
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class IndexesCollectionResult:
+    run_id: str
+    status: str
+    overhead_ms: float
+    indexes_written: int | None
+    recommendations_upserted: int | None
+    gap_detected: bool
+    gap_seconds: float | None
+    error_message: str | None
+
+
+def _unused_index_ddl(*, engine: Engine, schema_name: str, table_name: str, index_name: str) -> str:
+    if engine is Engine.POSTGRESQL:
+        return f'DROP INDEX IF EXISTS "{schema_name}"."{index_name}";'
+    # SQL Server
+    return f"DROP INDEX [{index_name.replace(']', ']]')}] ON [{schema_name.replace(']', ']]')}].[{table_name.replace(']', ']]')}];"
+
+
+def _unused_evidence_key_target(index_name: str) -> str:
+    return index_name
+
+
+def _missing_evidence_key_target(
+    *,
+    equality_columns: str | None,
+    inequality_columns: str | None,
+    included_columns: str | None,
+) -> str:
+    return "|".join(
+        [
+            equality_columns or "",
+            inequality_columns or "",
+            included_columns or "",
+        ]
+    )
+
+
+async def run_indexes_collection(instance_id: str, *, interval_ms: int = 86_400_000) -> IndexesCollectionResult:
+    """One indexes tick (Phase 1 element 5): inventory -> index_snapshot + recommendations."""
+    async with AsyncSessionLocal() as session:
+        params = await repository.get_connection_params(session, instance_id)
+        last_finished_at, _ = await repository.get_last_collector_run(session, instance_id, kind="indexes")
+
+        started_at = datetime.now(UTC)
+        gap_detected, gap_seconds = _detect_gap(started_at=started_at, last_finished_at=last_finished_at, interval_ms=interval_ms)
+
+        clock_start = time.perf_counter()
+        status = "ok"
+        error_message: str | None = None
+        indexes_written: int | None = None
+        recommendations_upserted: int | None = None
+
+        try:
+            adapter = _adapter_for(params.engine)
+            inventory = await adapter.collect_index_inventory(params)
+            missing = await adapter.collect_missing_indexes(params)
+
+            indexes_written = 0
+            recommendations_upserted = 0
+            snapshot_at = started_at
+
+            for inv in inventory:
+                await repository.insert_index_snapshot(
+                    session,
+                    instance_id=instance_id,
+                    database_name=inv.database_name,
+                    schema_name=inv.schema_name,
+                    table_name=inv.table_name,
+                    index_name=inv.index_name,
+                    snapshot_at=snapshot_at,
+                    size_bytes=inv.size_bytes,
+                    scans=inv.scans,
+                    is_unused=inv.is_unused,
+                    bloat_ratio=inv.bloat_ratio,
+                )
+                indexes_written += 1
+
+                if inv.is_unused and not inv.is_primary_key and not inv.is_unique:
+                    evidence_key = repository.compute_recommendation_evidence_key(
+                        schema_name=inv.schema_name,
+                        table_name=inv.table_name,
+                        index_or_columns=_unused_evidence_key_target(inv.index_name),
+                    )
+                    await repository.upsert_recommendation(
+                        session,
+                        instance_id=instance_id,
+                        category="unused_index",
+                        evidence_key=evidence_key,
+                        evidence={
+                            "schema_name": inv.schema_name,
+                            "table_name": inv.table_name,
+                            "index_name": inv.index_name,
+                            "database_name": inv.database_name,
+                            "scans": inv.scans,
+                            "size_bytes": inv.size_bytes,
+                            "details": inv.details,
+                        },
+                        ddl_suggestion=_unused_index_ddl(
+                            engine=params.engine,
+                            schema_name=inv.schema_name,
+                            table_name=inv.table_name,
+                            index_name=inv.index_name,
+                        ),
+                    )
+                    recommendations_upserted += 1
+
+            for miss in missing:
+                evidence_key = repository.compute_recommendation_evidence_key(
+                    schema_name=miss.schema_name,
+                    table_name=miss.table_name,
+                    index_or_columns=_missing_evidence_key_target(
+                        equality_columns=miss.equality_columns,
+                        inequality_columns=miss.inequality_columns,
+                        included_columns=miss.included_columns,
+                    ),
+                )
+                await repository.upsert_recommendation(
+                    session,
+                    instance_id=instance_id,
+                    category="missing_index",
+                    evidence_key=evidence_key,
+                    evidence={
+                        "schema_name": miss.schema_name,
+                        "table_name": miss.table_name,
+                        "database_name": miss.database_name,
+                        **miss.evidence,
+                    },
+                    ddl_suggestion=miss.ddl_suggestion,
+                )
+                recommendations_upserted += 1
+        except Exception as exc:
+            status = "error"
+            error_message = str(exc)
+            await session.rollback()
+
+        overhead_ms = (time.perf_counter() - clock_start) * 1000
+        finished_at = datetime.now(UTC)
+
+        run_id = await repository.insert_collector_run(
+            session,
+            instance_id=instance_id,
+            kind="indexes",
+            started_at=started_at,
+            finished_at=finished_at,
+            status=status,
+            interval_ms=interval_ms,
+            overhead_ms=overhead_ms,
+            clock_offset_ms=None,
+            gap_detected=gap_detected,
+            gap_seconds=gap_seconds,
+            error_message=error_message,
+        )
+        await session.commit()
+
+    return IndexesCollectionResult(
+        run_id=run_id,
+        status=status,
+        overhead_ms=overhead_ms,
+        indexes_written=indexes_written,
+        recommendations_upserted=recommendations_upserted,
         gap_detected=gap_detected,
         gap_seconds=gap_seconds,
         error_message=error_message,

@@ -28,7 +28,9 @@ from ..engine_adapter import (
     Engine,
     EngineAdapter,
     EngineCapabilities,
+    IndexInventoryRow,
     InstanceConnectionParams,
+    MissingIndexRow,
     QueryPlanRow,
     QueryStatRow,
     TrivialSample,
@@ -194,6 +196,109 @@ WHERE xdr.value('@timestamp', 'datetime2') > %s
 ORDER BY event_time
 """
 
+# Index inventory: definitions (size + columns) LEFT JOIN usage + fragmentation.
+# Pattern from sql-monitor collector/queries/indexes.py.
+_INDEX_DEFINITIONS_SQL = """
+WITH idx_sizes AS (
+    SELECT p.object_id, p.index_id,
+           CAST(SUM(CAST(a.total_pages AS BIGINT)) * 8 * 1024 AS BIGINT) AS size_bytes
+    FROM sys.partitions p WITH (NOLOCK)
+    JOIN sys.allocation_units a WITH (NOLOCK) ON a.container_id = p.hobt_id
+    GROUP BY p.object_id, p.index_id
+)
+SELECT
+    DB_NAME() AS database_name,
+    s.name AS schema_name,
+    t.name AS table_name,
+    i.name AS index_name,
+    i.index_id,
+    i.type_desc,
+    CAST(i.is_primary_key AS bit) AS is_primary_key,
+    CAST(i.is_unique AS bit) AS is_unique,
+    i.filter_definition,
+    COALESCE(sz.size_bytes, 0) AS size_bytes,
+    STRING_AGG(
+        CASE WHEN ic.is_included_column = 0
+             THEN c.name + CASE WHEN ic.is_descending_key = 1 THEN ' DESC' ELSE '' END
+        END, ', '
+    ) WITHIN GROUP (ORDER BY ic.index_column_id) AS key_columns,
+    STRING_AGG(
+        CASE WHEN ic.is_included_column = 1 THEN c.name END, ', '
+    ) WITHIN GROUP (ORDER BY ic.index_column_id) AS included_columns
+FROM sys.indexes i WITH (NOLOCK)
+JOIN sys.tables t WITH (NOLOCK) ON t.object_id = i.object_id
+JOIN sys.schemas s WITH (NOLOCK) ON s.schema_id = t.schema_id
+JOIN sys.index_columns ic WITH (NOLOCK)
+    ON ic.object_id = i.object_id AND ic.index_id = i.index_id
+JOIN sys.columns c WITH (NOLOCK)
+    ON c.object_id = ic.object_id AND c.column_id = ic.column_id
+LEFT JOIN idx_sizes sz ON sz.object_id = i.object_id AND sz.index_id = i.index_id
+WHERE i.type > 0
+  AND i.is_disabled = 0
+  AND t.is_ms_shipped = 0
+GROUP BY s.name, t.name, i.name, i.index_id, i.type_desc,
+         i.is_primary_key, i.is_unique, i.filter_definition, sz.size_bytes
+ORDER BY t.name, i.index_id
+"""
+
+_INDEX_USAGE_SQL = """
+SELECT
+    SCHEMA_NAME(t.schema_id) AS schema_name,
+    t.name AS table_name,
+    i.name AS index_name,
+    ius.user_seeks,
+    ius.user_scans,
+    ius.user_lookups,
+    ius.user_updates
+FROM sys.dm_db_index_usage_stats AS ius WITH (NOLOCK)
+JOIN sys.tables AS t WITH (NOLOCK) ON t.object_id = ius.object_id
+JOIN sys.indexes AS i WITH (NOLOCK)
+    ON i.object_id = ius.object_id AND i.index_id = ius.index_id
+WHERE ius.database_id = DB_ID()
+  AND t.is_ms_shipped = 0
+  AND i.name IS NOT NULL
+"""
+
+_INDEX_FRAGMENTATION_SQL = """
+SELECT
+    SCHEMA_NAME(t.schema_id) AS schema_name,
+    t.name AS table_name,
+    i.name AS index_name,
+    ips.avg_fragmentation_in_percent AS avg_fragmentation_pct,
+    ips.page_count
+FROM sys.dm_db_index_physical_stats(DB_ID(), NULL, NULL, NULL, 'SAMPLED') AS ips
+JOIN sys.tables AS t WITH (NOLOCK) ON t.object_id = ips.object_id
+JOIN sys.indexes AS i WITH (NOLOCK)
+    ON i.object_id = ips.object_id AND i.index_id = ips.index_id
+WHERE ips.index_id > 0
+  AND ips.page_count > 100
+  AND t.is_ms_shipped = 0
+  AND i.name IS NOT NULL
+"""
+
+_MISSING_INDEXES_SQL = """
+SELECT
+    DB_NAME(mid.database_id) AS database_name,
+    SCHEMA_NAME(t.schema_id) AS schema_name,
+    t.name AS table_name,
+    mid.equality_columns,
+    mid.inequality_columns,
+    mid.included_columns,
+    migs.avg_user_impact,
+    migs.user_seeks,
+    migs.user_scans
+FROM sys.dm_db_missing_index_details AS mid WITH (NOLOCK)
+JOIN sys.dm_db_missing_index_groups AS mig WITH (NOLOCK)
+    ON mid.index_handle = mig.index_handle
+JOIN sys.dm_db_missing_index_group_stats AS migs WITH (NOLOCK)
+    ON mig.index_group_handle = migs.group_handle
+JOIN sys.tables AS t WITH (NOLOCK)
+    ON t.object_id = OBJECT_ID(mid.statement)
+    AND mid.database_id = DB_ID()
+WHERE mid.database_id = DB_ID()
+ORDER BY migs.avg_user_impact * (migs.user_seeks + migs.user_scans) DESC
+"""
+
 
 def _connect(params: InstanceConnectionParams) -> pytds.Connection:
     return pytds.connect(
@@ -242,7 +347,11 @@ def _detect_capabilities_sync(params: InstanceConnectionParams) -> EngineCapabil
             WHERE name = N'system_health'
             """)
         system_health = int(cur.fetchone()[0]) > 0
-        features = {"query_store": query_store_enabled, "deadlock_history": system_health}
+        features = {
+            "query_store": query_store_enabled,
+            "deadlock_history": system_health,
+            "missing_index_dmv": True,
+        }
 
         grants: dict[str, bool] = {}
         for securable_class, permission in _RELEVANT_PERMISSIONS:
@@ -485,6 +594,173 @@ def _collect_deadlocks_sync(params: InstanceConnectionParams, *, since: datetime
     return result
 
 
+def _index_key(schema: str, table: str, index: str) -> tuple[str, str, str]:
+    return (schema, table, index)
+
+
+def _collect_index_inventory_sync(params: InstanceConnectionParams) -> list[IndexInventoryRow]:
+    with _connect(params) as conn, conn.cursor() as cur:
+        cur.execute(_INDEX_DEFINITIONS_SQL)
+        definitions = _fetch_dicts(cur)
+        cur.execute(_INDEX_USAGE_SQL)
+        usage_rows = _fetch_dicts(cur)
+        try:
+            cur.execute(_INDEX_FRAGMENTATION_SQL)
+            frag_rows = _fetch_dicts(cur)
+        except Exception:
+            # SAMPLED physical stats can fail without sufficient grants; inventory
+            # still succeeds with bloat_ratio=None.
+            frag_rows = []
+
+    usage: dict[tuple[str, str, str], dict[str, Any]] = {}
+    for row in usage_rows:
+        key = _index_key(str(row["schema_name"]), str(row["table_name"]), str(row["index_name"]))
+        usage[key] = row
+
+    frag: dict[tuple[str, str, str], float] = {}
+    for row in frag_rows:
+        key = _index_key(str(row["schema_name"]), str(row["table_name"]), str(row["index_name"]))
+        pct = row.get("avg_fragmentation_pct")
+        if pct is not None:
+            frag[key] = float(pct) / 100.0
+
+    results: list[IndexInventoryRow] = []
+    for row in definitions:
+        schema = str(row["schema_name"])
+        table = str(row["table_name"])
+        index_name = str(row["index_name"])
+        key = _index_key(schema, table, index_name)
+        u = usage.get(key)
+        seeks = int(u["user_seeks"]) if u and u.get("user_seeks") is not None else 0
+        scans_u = int(u["user_scans"]) if u and u.get("user_scans") is not None else 0
+        lookups = int(u["user_lookups"]) if u and u.get("user_lookups") is not None else 0
+        updates = int(u["user_updates"]) if u and u.get("user_updates") is not None else 0
+        scans = seeks + scans_u + lookups
+        is_pk = bool(row["is_primary_key"])
+        is_unique = bool(row["is_unique"])
+        # Unused: zero read activity; never recommend dropping PK (unique may
+        # still be a candidate only when not PK -- plan excludes both).
+        is_unused = scans == 0 and not is_pk and not is_unique
+        size_bytes = int(row["size_bytes"]) if row.get("size_bytes") is not None else None
+        results.append(
+            IndexInventoryRow(
+                database_name=str(row["database_name"]),
+                schema_name=schema,
+                table_name=table,
+                index_name=index_name,
+                size_bytes=size_bytes,
+                scans=scans,
+                is_unused=is_unused,
+                bloat_ratio=frag.get(key),
+                is_primary_key=is_pk,
+                is_unique=is_unique,
+                details={
+                    "key_columns": row.get("key_columns"),
+                    "included_columns": row.get("included_columns"),
+                    "type_desc": row.get("type_desc"),
+                    "filter_definition": row.get("filter_definition"),
+                    "user_seeks": seeks,
+                    "user_scans": scans_u,
+                    "user_lookups": lookups,
+                    "user_updates": updates,
+                },
+            )
+        )
+    return results
+
+
+def _bracket_ident(name: str) -> str:
+    return f"[{name.replace(']', ']]')}]"
+
+
+def _ss_column_list(raw: str | None) -> list[str]:
+    """Parse DMV column list like ``[a], [b]`` into bare names."""
+    if not raw:
+        return []
+    parts: list[str] = []
+    for chunk in raw.split(","):
+        name = chunk.strip()
+        if name.startswith("[") and name.endswith("]"):
+            name = name[1:-1].replace("]]", "]")
+        if name:
+            parts.append(name)
+    return parts
+
+
+def _build_missing_index_ddl(
+    *,
+    schema_name: str,
+    table_name: str,
+    equality_columns: str | None,
+    inequality_columns: str | None,
+    included_columns: str | None,
+) -> str:
+    eq = _ss_column_list(equality_columns)
+    ineq = _ss_column_list(inequality_columns)
+    included = _ss_column_list(included_columns)
+    key_cols = eq + ineq
+    if not key_cols:
+        key_cols = ["_missing_key"]
+    # Stable short name from first few columns.
+    suffix = "_".join(c[:20] for c in key_cols[:3])
+    index_name = f"IX_{table_name}_{suffix}"[:128]
+    key_sql = ", ".join(_bracket_ident(c) for c in key_cols)
+    ddl = f"CREATE NONCLUSTERED INDEX {_bracket_ident(index_name)} " f"ON {_bracket_ident(schema_name)}.{_bracket_ident(table_name)} ({key_sql})"
+    if included:
+        ddl += " INCLUDE (" + ", ".join(_bracket_ident(c) for c in included) + ")"
+    return ddl + ";"
+
+
+def _collect_missing_indexes_sync(params: InstanceConnectionParams) -> list[MissingIndexRow]:
+    try:
+        with _connect(params) as conn, conn.cursor() as cur:
+            cur.execute(_MISSING_INDEXES_SQL)
+            rows = _fetch_dicts(cur)
+    except Exception:
+        return []
+
+    results: list[MissingIndexRow] = []
+    for row in rows:
+        schema = str(row["schema_name"])
+        table = str(row["table_name"])
+        eq = str(row["equality_columns"]) if row.get("equality_columns") is not None else None
+        ineq = str(row["inequality_columns"]) if row.get("inequality_columns") is not None else None
+        included = str(row["included_columns"]) if row.get("included_columns") is not None else None
+        user_seeks = int(row["user_seeks"] or 0)
+        user_scans = int(row["user_scans"] or 0)
+        avg_impact = float(row["avg_user_impact"] or 0.0)
+        ddl = _build_missing_index_ddl(
+            schema_name=schema,
+            table_name=table,
+            equality_columns=eq,
+            inequality_columns=ineq,
+            included_columns=included,
+        )
+        results.append(
+            MissingIndexRow(
+                database_name=str(row["database_name"]),
+                schema_name=schema,
+                table_name=table,
+                equality_columns=eq,
+                inequality_columns=ineq,
+                included_columns=included,
+                user_seeks=user_seeks,
+                user_scans=user_scans,
+                avg_user_impact=avg_impact,
+                ddl_suggestion=ddl,
+                evidence={
+                    "equality_columns": eq,
+                    "inequality_columns": ineq,
+                    "included_columns": included,
+                    "user_seeks": user_seeks,
+                    "user_scans": user_scans,
+                    "avg_user_impact": avg_impact,
+                },
+            )
+        )
+    return results
+
+
 class SqlServerEngineAdapter(EngineAdapter):
     engine = Engine.SQLSERVER
 
@@ -509,6 +785,12 @@ class SqlServerEngineAdapter(EngineAdapter):
     async def collect_deadlocks(self, params: InstanceConnectionParams, *, since: datetime | None) -> list[DeadlockRow]:
         return await asyncio.to_thread(_collect_deadlocks_sync, params, since=since)
 
+    async def collect_index_inventory(self, params: InstanceConnectionParams) -> list[IndexInventoryRow]:
+        return await asyncio.to_thread(_collect_index_inventory_sync, params)
+
+    async def collect_missing_indexes(self, params: InstanceConnectionParams) -> list[MissingIndexRow]:
+        return await asyncio.to_thread(_collect_missing_indexes_sync, params)
+
 
 # Re-exported for tests that need to patch the sync entry points without
 # reaching into module-private names.
@@ -521,4 +803,7 @@ __all__ = [
     "_collect_query_plans_sync",
     "_collect_blocking_sync",
     "_collect_deadlocks_sync",
+    "_collect_index_inventory_sync",
+    "_collect_missing_indexes_sync",
+    "_build_missing_index_ddl",
 ]

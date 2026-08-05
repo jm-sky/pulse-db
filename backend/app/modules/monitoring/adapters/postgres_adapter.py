@@ -22,7 +22,9 @@ from ..engine_adapter import (
     Engine,
     EngineAdapter,
     EngineCapabilities,
+    IndexInventoryRow,
     InstanceConnectionParams,
+    MissingIndexRow,
     QueryPlanRow,
     QueryStatRow,
     TrivialSample,
@@ -124,6 +126,28 @@ WHERE NOT bl.granted
 ORDER BY blocked.pid, blocking.pid, blocked_duration_ms DESC NULLS LAST
 """
 
+_PG_INDEX_INVENTORY_SQL = """
+SELECT
+    current_database() AS database_name,
+    psi.schemaname AS schema_name,
+    psi.relname AS table_name,
+    psi.indexrelname AS index_name,
+    pg_relation_size(psi.indexrelid) AS size_bytes,
+    psi.idx_scan AS scans,
+    i.indisprimary AS is_primary_key,
+    i.indisunique AS is_unique,
+    pg_get_indexdef(psi.indexrelid) AS index_definition,
+    (
+        SELECT string_agg(a.attname, ', ' ORDER BY x.ordinality)
+        FROM unnest(i.indkey) WITH ORDINALITY AS x(attnum, ordinality)
+        JOIN pg_attribute a
+          ON a.attrelid = i.indrelid AND a.attnum = x.attnum
+    ) AS key_columns
+FROM pg_stat_user_indexes psi
+JOIN pg_index i ON i.indexrelid = psi.indexrelid
+ORDER BY psi.schemaname, psi.relname, psi.indexrelname
+"""
+
 
 @dataclass(frozen=True, slots=True)
 class WaitSamplingHistoryRow:
@@ -182,6 +206,8 @@ class PostgresEngineAdapter(EngineAdapter):
             # No zero-overhead deadlock ring buffer on PostgreSQL (Phase 1
             # element 4) -- history requires log parse, out of MVP scope.
             features["deadlock_history"] = False
+            # Missing-index DMV is SQL Server only (Phase 1 element 5).
+            features["missing_index_dmv"] = False
 
             grants = {role: bool(await conn.fetchval("SELECT pg_has_role(current_user, $1, 'MEMBER')", role)) for role in _RELEVANT_ROLES}
             # Superuser bypasses role checks and already has everything pg_monitor grants.
@@ -383,6 +409,44 @@ class PostgresEngineAdapter(EngineAdapter):
     async def collect_deadlocks(self, params: InstanceConnectionParams, *, since: datetime | None) -> list[DeadlockRow]:
         """PostgreSQL MVP: no deadlock history source (see capabilities.deadlock_history)."""
         _ = params, since
+        return []
+
+    async def collect_index_inventory(self, params: InstanceConnectionParams) -> list[IndexInventoryRow]:
+        """pg_stat_user_indexes + pg_class size; unused = idx_scan=0 and not PK/unique."""
+        conn = await self._connect(params)
+        try:
+            rows = await conn.fetch(_PG_INDEX_INVENTORY_SQL)
+            results: list[IndexInventoryRow] = []
+            for row in rows:
+                scans = int(row["scans"]) if row["scans"] is not None else 0
+                is_pk = bool(row["is_primary_key"])
+                is_unique = bool(row["is_unique"])
+                is_unused = scans == 0 and not is_pk and not is_unique
+                results.append(
+                    IndexInventoryRow(
+                        database_name=row["database_name"],
+                        schema_name=row["schema_name"],
+                        table_name=row["table_name"],
+                        index_name=row["index_name"],
+                        size_bytes=int(row["size_bytes"]) if row["size_bytes"] is not None else None,
+                        scans=scans,
+                        is_unused=is_unused,
+                        bloat_ratio=None,
+                        is_primary_key=is_pk,
+                        is_unique=is_unique,
+                        details={
+                            "key_columns": row["key_columns"],
+                            "index_definition": row["index_definition"],
+                        },
+                    )
+                )
+            return results
+        finally:
+            await conn.close()
+
+    async def collect_missing_indexes(self, params: InstanceConnectionParams) -> list[MissingIndexRow]:
+        """PostgreSQL MVP: no missing-index DMV (see capabilities.missing_index_dmv)."""
+        _ = params
         return []
 
     async def collect_wait_sampling_history(self, params: InstanceConnectionParams, *, since: datetime | None) -> WaitSamplingHistoryBatch:

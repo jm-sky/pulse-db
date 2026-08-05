@@ -18,6 +18,9 @@ detection via new `query_plan` rows -- docs/plans/2026-08-05-query-plans.md).
 
 Phase 1 element 4 adds `collect_blocking` / `collect_deadlocks`
 (docs/plans/2026-08-05-blocking-deadlocks.md).
+
+Phase 1 element 5 adds `collect_index_inventory` / `collect_missing_indexes`
+(docs/plans/2026-08-05-index-analysis.md).
 """
 
 from __future__ import annotations
@@ -177,6 +180,40 @@ class DeadlockRow:
     details: dict
 
 
+@dataclass(frozen=True, slots=True)
+class IndexInventoryRow:
+    """One index in the monitored database inventory (Phase 1 element 5)."""
+
+    database_name: str
+    schema_name: str
+    table_name: str
+    index_name: str
+    size_bytes: int | None
+    scans: int | None
+    is_unused: bool
+    bloat_ratio: float | None
+    is_primary_key: bool
+    is_unique: bool
+    details: dict
+
+
+@dataclass(frozen=True, slots=True)
+class MissingIndexRow:
+    """One missing-index suggestion from the engine (SQL Server DMV; Phase 1 element 5)."""
+
+    database_name: str
+    schema_name: str
+    table_name: str
+    equality_columns: str | None
+    inequality_columns: str | None
+    included_columns: str | None
+    user_seeks: int
+    user_scans: int
+    avg_user_impact: float
+    ddl_suggestion: str
+    evidence: dict
+
+
 class EngineAdapter(ABC):
     """One adapter implementation per supported engine."""
 
@@ -226,3 +263,11 @@ class EngineAdapter(ABC):
         Empty list when the engine has no history source (PostgreSQL MVP) or
         the ring buffer has no new events -- never an error for missing capability.
         """
+
+    @abstractmethod
+    async def collect_index_inventory(self, params: InstanceConnectionParams) -> list[IndexInventoryRow]:
+        """Snapshot index inventory + usage for the connected database (Phase 1 element 5)."""
+
+    @abstractmethod
+    async def collect_missing_indexes(self, params: InstanceConnectionParams) -> list[MissingIndexRow]:
+        """Engine missing-index suggestions (Phase 1 element 5). Empty on PostgreSQL MVP."""

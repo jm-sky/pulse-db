@@ -174,3 +174,48 @@ class DeadlockEventDetailResponse(BaseModel):
     detectedAt: datetime
     victimQueryId: str | None = None
     details: dict
+
+
+class IndexSnapshotItemResponse(BaseModel):
+    id: str
+    databaseName: str
+    schemaName: str
+    tableName: str
+    indexName: str
+    snapshotAt: datetime
+    sizeBytes: int | None = None
+    scans: int | None = None
+    isUnused: bool
+    bloatRatio: float | None = None
+
+
+class IndexesResponse(BaseModel):
+    instanceId: str
+    snapshotAt: datetime | None = None
+    indexes: list[IndexSnapshotItemResponse]
+
+
+class RecommendationItemResponse(BaseModel):
+    id: str
+    createdAt: datetime
+    category: str
+    queryId: str | None = None
+    evidence: dict
+    ddlSuggestion: str | None = None
+    status: str
+
+
+class RecommendationsResponse(BaseModel):
+    instanceId: str
+    recommendations: list[RecommendationItemResponse]
+
+
+class RecommendationDetailResponse(BaseModel):
+    id: str
+    instanceId: str
+    createdAt: datetime
+    category: str
+    queryId: str | None = None
+    evidence: dict
+    ddlSuggestion: str | None = None
+    status: str

@@ -18,6 +18,8 @@ from .schemas import (
     DeadlockEventDetailResponse,
     DeadlockEventsResponse,
     DeadlockEventSummaryResponse,
+    IndexesResponse,
+    IndexSnapshotItemResponse,
     MonitoredInstanceListResponse,
     MonitoredInstanceResponse,
     PeriodComparisonSummaryResponse,
@@ -30,6 +32,9 @@ from .schemas import (
     QueryPlanDetailResponse,
     QueryPlanItemResponse,
     QueryPlansListResponse,
+    RecommendationDetailResponse,
+    RecommendationItemResponse,
+    RecommendationsResponse,
     WaitPeriodComparisonItem,
     WaitPeriodMetricsResponse,
     WaitsTimelinePointResponse,
@@ -427,4 +432,109 @@ async def get_deadlock(
         detectedAt=row.detected_at,
         victimQueryId=row.victim_query_id,
         details=row.details,
+    )
+
+
+@router.get(
+    "/instances/{instance_id}/indexes",
+    response_model=IndexesResponse,
+    summary="List latest index inventory snapshot",
+    description="Rows from the most recent indexes collector tick (optional exact snapshot_at).",
+)
+async def list_indexes(
+    instance_id: str,
+    _: CurrentUser,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    snapshot_at: datetime | None = Query(default=None, description="Exact snapshot timestamp; default = latest"),
+) -> IndexesResponse:
+    if not await repository.instance_exists(db, instance_id=instance_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Monitored instance not found")
+
+    rows = await repository.list_index_snapshots(db, instance_id=instance_id, snapshot_at=snapshot_at)
+    return IndexesResponse(
+        instanceId=instance_id,
+        snapshotAt=rows[0].snapshot_at if rows else snapshot_at,
+        indexes=[
+            IndexSnapshotItemResponse(
+                id=row.id,
+                databaseName=row.database_name,
+                schemaName=row.schema_name,
+                tableName=row.table_name,
+                indexName=row.index_name,
+                snapshotAt=row.snapshot_at,
+                sizeBytes=row.size_bytes,
+                scans=row.scans,
+                isUnused=row.is_unused,
+                bloatRatio=row.bloat_ratio,
+            )
+            for row in rows
+        ],
+    )
+
+
+@router.get(
+    "/instances/{instance_id}/recommendations",
+    response_model=RecommendationsResponse,
+    summary="List index (and other) recommendations",
+)
+async def list_recommendations(
+    instance_id: str,
+    _: CurrentUser,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    category: str | None = Query(default=None, description="Filter by category, e.g. unused_index / missing_index"),
+    status_filter: str | None = Query(default="open", alias="status", description="Filter by status; omit or null for all"),
+) -> RecommendationsResponse:
+    if not await repository.instance_exists(db, instance_id=instance_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Monitored instance not found")
+
+    rows = await repository.list_recommendations(
+        db,
+        instance_id=instance_id,
+        category=category,
+        status=status_filter,
+    )
+    return RecommendationsResponse(
+        instanceId=instance_id,
+        recommendations=[
+            RecommendationItemResponse(
+                id=row.id,
+                createdAt=row.created_at,
+                category=row.category,
+                queryId=row.query_id,
+                evidence=row.evidence,
+                ddlSuggestion=row.ddl_suggestion,
+                status=row.status,
+            )
+            for row in rows
+        ],
+    )
+
+
+@router.get(
+    "/instances/{instance_id}/recommendations/{recommendation_id}",
+    response_model=RecommendationDetailResponse,
+    summary="Get one recommendation",
+)
+async def get_recommendation(
+    instance_id: str,
+    recommendation_id: str,
+    _: CurrentUser,
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> RecommendationDetailResponse:
+    if not await repository.instance_exists(db, instance_id=instance_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Monitored instance not found")
+
+    row = await repository.get_recommendation(db, instance_id=instance_id, recommendation_id=recommendation_id)
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Recommendation not found")
+
+    return RecommendationDetailResponse(
+        id=row.id,
+        instanceId=row.instance_id,
+        createdAt=row.created_at,
+        category=row.category,
+        queryId=row.query_id,
+        evidence=row.evidence,
+        ddlSuggestion=row.ddl_suggestion,
+        status=row.status,
     )

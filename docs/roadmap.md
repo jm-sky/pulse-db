@@ -163,8 +163,9 @@ Kolejność nie jest dowolna: sampler pierwszy, bo to jest produkt; zapytania za
 | 2. Top queries z historią | ✅ **PostgreSQL**: `pg_stat_statements` + `query_stat_cursor`. ✅ **SQL Server**: `dm_exec_query_stats` + ten sam kursor/delta (Query Store wykrywany, nie jest jeszcze źródłem MVP) |
 | 3. Plany wykonania + detekcja zmiany planu | ✅ Adapter + kolektor TOP-N (PG EXPLAIN JSON / SS dm_exec_query_plan), API list/export/plan-changes; [plan](plans/2026-08-05-query-plans.md) |
 | 4. Blokady i deadlocki | ✅ Blocking PG+SS; deadlocks SS `system_health` + watermark; PG `deadlock_history: false`; [plan](plans/2026-08-05-blocking-deadlocks.md) |
-| 5, 7 | ❌ nie zaczęte |
+| 5. Analiza indeksów z DDL | ✅ Inventory PG+SS → `index_snapshot`; unused DROP (oba); missing CREATE (SS); tick 24 h; [plan](plans/2026-08-05-index-analysis.md) |
 | 6. Porównanie okresów / regresja zapytania (baseline poziom 1) | ✅ API: `GET .../queries/period-comparison` + `GET .../period-comparison/summary` nad rollupami `query_stat_1h`/`ash_1h`; testy jednostkowe; walidacja E2E na żywych rollupach — `verification needed` |
+| 7. Baseline sezonowy percentylowy | ❌ nie zaczęte |
 
 Szczegóły: [plan Fazy 1 — rdzeń diagnostyczny](plans/2026-07-30-phase1-diagnostic-core.md).
 
@@ -279,24 +280,24 @@ Największa nierozwiązana luka projektu (§6 vision: *sam AGPLv3 nie generuje a
 | Faza 1, elementy 1–2 | ✅ **PostgreSQL + SQL Server** zaimplementowane i zweryfikowane end-to-end. [plan Fazy 1](plans/2026-07-30-phase1-diagnostic-core.md) |
 | Faza 1, element 3 (plany) | ✅ Adapter + kolektor + API; [plan](plans/2026-08-05-query-plans.md) |
 | Faza 1, element 4 (blokady/deadlocki) | ✅ Blocking + SS deadlocks; [plan](plans/2026-08-05-blocking-deadlocks.md) |
+| Faza 1, element 5 (indeksy) | ✅ Inventory + unused/missing DDL; [plan](plans/2026-08-05-index-analysis.md) |
 | Faza 1, element 6 (porównanie okresów) | ✅ API + testy; walidacja E2E na rollupach — `verification needed`. [plan Fazy 1](plans/2026-07-30-phase1-diagnostic-core.md) |
-| Faza 1, elementy 5, 7 | Nie zaczęte |
+| Faza 1, element 7 | Nie zaczęte |
 | Faza 0a (spike'e, wywiady, PRD) | Nie zaczęte — patrz §2; teza estate mieszanego nadal 🟡 |
 | Desktop UI shell | `verification needed` — Explorer z API + ECharts Waits na `ash_*`; [plan](plans/2026-08-04-desktop-ui-shell.md) |
 | Dev monitoring targets | `pulse-db-local`, `sql-monitor-postgres`, `taxorder-ksef-local` — `cli monitoring register-dev-instances` / `scripts/monitoring/` |
 
 ### Rekomendacja — w tej kolejności
 
-1. **Manual QA shella Waits** + **walidacja E2E elementu 6** + live E2E blocking/deadlocks (PG lock scenario, S2017 system_health).
-2. **Faza 1, element 5** (analiza indeksów z DDL) — kolejność z roadmapy; SQL Server ma wzorce w `sql-monitor/collector/queries/indexes.py`.
-3. **Faza 1, element 7** (baseline sezonowy percentylowy) — wymaga kilku tygodni historii w rollupach.
-4. **Faza 0a** (wywiady z DBA, PRD) — równolegle; ADR wykresów: ECharts już w shellu Waits ([research](research/2026-07-30-chart-library.md)).
+1. **Manual QA shella Waits** + **walidacja E2E elementu 6** + live E2E indexes (lokalny PG + S2017) + blocking/deadlocks.
+2. **Faza 1, element 7** (baseline sezonowy percentylowy) — wymaga kilku tygodni historii w rollupach.
+3. **Faza 0a** (wywiady z DBA, PRD) — równolegle; ADR wykresów: ECharts już w shellu Waits ([research](research/2026-07-30-chart-library.md)).
 
 ### Co NIE jest zalecane teraz
 
 - Automatyczne (nie opt-in) przełączenie na `pg_wait_sampling` jako domyślne źródło — wymaga decyzji o budżecie retencji/wolumenu.
-- Query Store / parse logów PG pod historię deadlocków przed elementem 5.
-- Drill-in / Queries UI przed domknięciem API Fazy 1 el. 5.
+- Query Store / parse logów PG pod historię deadlocków przed elementem 7.
+- Drill-in / Queries UI przed live E2E elementu 5.
 
 ---
 

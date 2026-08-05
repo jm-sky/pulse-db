@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { useMagicKeys, whenever } from '@vueuse/core'
-import { Activity, Settings, User } from 'lucide-vue-next'
+import { Activity, Search, Settings, User } from 'lucide-vue-next'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 import {
@@ -13,6 +13,7 @@ import {
   CommandSeparator,
   CommandShortcut,
 } from '@/components/ui/command'
+import { useWorkspaceContext } from '@/modules/monitoring/composables/useWorkspaceContext'
 import { MonitoringRoutePaths } from '@/modules/monitoring/routes'
 import { SettingsRoutePaths } from '@/modules/settings/routes'
 import { UserRoutePaths } from '@/modules/user/routes'
@@ -21,6 +22,7 @@ const open = defineModel<boolean>('open', { default: false })
 
 const { t } = useI18n()
 const router = useRouter()
+const { selectedInstanceId } = useWorkspaceContext()
 
 const keys = useMagicKeys()
 const metaK = keys['Meta+K']
@@ -37,6 +39,14 @@ async function run(path: string) {
   open.value = false
   await router.push(path)
 }
+
+function openQueries() {
+  if (selectedInstanceId.value) {
+    void run(MonitoringRoutePaths.instanceQueries(selectedInstanceId.value))
+    return
+  }
+  void run(MonitoringRoutePaths.queries)
+}
 </script>
 
 <template>
@@ -52,6 +62,10 @@ async function run(path: string) {
         <CommandItem value="waits" @select="() => run(MonitoringRoutePaths.waits)">
           <Activity />
           <span>{{ t('monitoring.command.openWaits') }}</span>
+        </CommandItem>
+        <CommandItem value="queries" @select="() => openQueries()">
+          <Search />
+          <span>{{ t('monitoring.command.openQueries') }}</span>
         </CommandItem>
         <CommandItem value="settings" @select="() => run(SettingsRoutePaths.settings)">
           <Settings />

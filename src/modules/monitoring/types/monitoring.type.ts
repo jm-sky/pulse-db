@@ -42,3 +42,43 @@ export interface WaitsTimelineParams {
   end: string
   granularity?: '1m' | '1h'
 }
+
+export interface PeriodWindow {
+  start: string
+  end: string
+}
+
+export interface PeriodMetrics {
+  calls: number
+  totalTimeMs: number
+  rowsReturned: number
+  avgTimeMs: number | null
+}
+
+export interface QueryPeriodComparisonItem {
+  queryId: string
+  queryText: string | null
+  baseline: PeriodMetrics | null
+  current: PeriodMetrics | null
+  avgTimeMsDelta: number | null
+  avgTimeMsDeltaPct: number | null
+  callsDelta: number | null
+  totalTimeMsDelta: number | null
+  isRegression: boolean
+}
+
+export interface QueryPeriodComparison {
+  instanceId: string
+  baseline: PeriodWindow
+  current: PeriodWindow
+  queries: QueryPeriodComparisonItem[]
+}
+
+export interface QueryPeriodComparisonParams {
+  baselineStart: string
+  baselineEnd: string
+  currentStart: string
+  currentEnd: string
+  regressionsOnly?: boolean
+  limit?: number
+}

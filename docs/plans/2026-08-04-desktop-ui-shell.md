@@ -60,7 +60,7 @@ Rejestracja + podpięcie sieci: `bash scripts/monitoring/register_dev_instances.
 
 - Weryfikacja wizualna w przeglądarce (light/dark, ⌘K, toggle Explorer, przełączanie instancji + live rollupy)
 - Drill-in z wykresu (Faza 2 łańcuch §3.7)
-- Ekran Queries pod instancją
+- Ekran Queries pod instancją → [2026-08-05-queries-ui.md](2026-08-05-queries-ui.md) (`planned`)
 
 ## Powiązane
 

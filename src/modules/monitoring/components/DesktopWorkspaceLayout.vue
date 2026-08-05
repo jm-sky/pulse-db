@@ -8,7 +8,7 @@ import WorkspaceTabBar from '@/modules/monitoring/components/WorkspaceTabBar.vue
 
 withDefaults(
   defineProps<{
-    activeTab?: 'waits'
+    activeTab?: 'waits' | 'queries'
   }>(),
   { activeTab: 'waits' },
 )

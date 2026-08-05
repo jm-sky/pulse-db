@@ -2,13 +2,14 @@
 import { ChevronDown, ChevronRight, Circle, Database, Server } from 'lucide-vue-next'
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { cn } from '@/lib/utils'
 import { useWorkspaceContext } from '@/modules/monitoring/composables/useWorkspaceContext'
 import { MonitoringRoutePaths } from '@/modules/monitoring/routes'
 import type { MonitoredInstance } from '@/modules/monitoring/types/monitoring.type'
 
 const { t } = useI18n()
+const route = useRoute()
 const router = useRouter()
 const {
   instances,
@@ -33,6 +34,10 @@ const visibleInstances = computed(() =>
   instances.value.filter(instance => instance.isActive),
 )
 
+const activeView = computed<'waits' | 'queries'>(() =>
+  route.path.includes('/queries') ? 'queries' : 'waits',
+)
+
 function toggleInstance(id: string) {
   expanded.value[id] = !expanded.value[id]
 }
@@ -40,6 +45,11 @@ function toggleInstance(id: string) {
 function openWaits(instance: MonitoredInstance) {
   expanded.value[instance.id] = true
   void router.push(MonitoringRoutePaths.instanceWaits(instance.id))
+}
+
+function openQueries(instance: MonitoredInstance) {
+  expanded.value[instance.id] = true
+  void router.push(MonitoringRoutePaths.instanceQueries(instance.id))
 }
 
 function statusClass(status: MonitoredInstance['collectorStatus']) {
@@ -118,15 +128,16 @@ function statusClass(status: MonitoredInstance['collectorStatus']) {
               <button
                 type="button"
                 class="flex w-full items-center rounded-sm px-2 py-0.5 text-left hover:bg-sidebar-accent"
-                :class="selectedInstanceId === instance.id && 'bg-sidebar-accent/80'"
+                :class="selectedInstanceId === instance.id && activeView === 'waits' && 'bg-sidebar-accent/80'"
                 @click="openWaits(instance)"
               >
                 {{ t('monitoring.explorer.waits') }}
               </button>
               <button
                 type="button"
-                disabled
-                class="flex w-full items-center rounded-sm px-2 py-0.5 text-left text-muted-foreground opacity-60"
+                class="flex w-full items-center rounded-sm px-2 py-0.5 text-left hover:bg-sidebar-accent"
+                :class="selectedInstanceId === instance.id && activeView === 'queries' && 'bg-sidebar-accent/80'"
+                @click="openQueries(instance)"
               >
                 {{ t('monitoring.explorer.queries') }}
               </button>

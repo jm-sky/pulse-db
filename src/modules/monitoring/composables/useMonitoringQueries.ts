@@ -7,7 +7,10 @@ import {
   monitoringRetryFunction,
 } from '@/modules/monitoring/utils/queryUtils'
 import { config } from '@/shared/config/config'
-import type { WaitsTimelineParams } from '@/modules/monitoring/types/monitoring.type'
+import type {
+  QueryPeriodComparisonParams,
+  WaitsTimelineParams,
+} from '@/modules/monitoring/types/monitoring.type'
 
 export function useMonitoringInstancesQuery() {
   const authStore = useAuthStore()
@@ -37,6 +40,35 @@ export function useWaitsTimelineQuery(
       ),
     ),
     queryFn: () => monitoringApiService.getWaitsTimeline(instanceId.value, params.value),
+    enabled: computed(() =>
+      config.backend.enabled
+      && Boolean(authStore.token)
+      && Boolean(instanceId.value),
+    ),
+    staleTime: 30_000,
+    retry: monitoringRetryFunction,
+  })
+}
+
+export function useQueryPeriodComparisonQuery(
+  instanceId: Ref<string>,
+  params: Ref<QueryPeriodComparisonParams>,
+) {
+  const authStore = useAuthStore()
+
+  return useQuery({
+    queryKey: computed(() =>
+      monitoringQueryKeys.queryPeriodComparison(
+        instanceId.value,
+        params.value.baselineStart,
+        params.value.baselineEnd,
+        params.value.currentStart,
+        params.value.currentEnd,
+        params.value.regressionsOnly ?? false,
+        params.value.limit ?? 100,
+      ),
+    ),
+    queryFn: () => monitoringApiService.getQueryPeriodComparison(instanceId.value, params.value),
     enabled: computed(() =>
       config.backend.enabled
       && Boolean(authStore.token)

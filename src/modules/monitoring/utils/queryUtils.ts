@@ -5,6 +5,26 @@ export const monitoringQueryKeys = {
   instances: () => [...monitoringQueryKeys.all, 'instances'] as const,
   waitsTimeline: (instanceId: string, start: string, end: string, granularity?: string) =>
     [...monitoringQueryKeys.all, 'waits-timeline', instanceId, start, end, granularity ?? 'auto'] as const,
+  queryPeriodComparison: (
+    instanceId: string,
+    baselineStart: string,
+    baselineEnd: string,
+    currentStart: string,
+    currentEnd: string,
+    regressionsOnly: boolean,
+    limit: number,
+  ) =>
+    [
+      ...monitoringQueryKeys.all,
+      'query-period-comparison',
+      instanceId,
+      baselineStart,
+      baselineEnd,
+      currentStart,
+      currentEnd,
+      regressionsOnly,
+      limit,
+    ] as const,
 }
 
 export function monitoringRetryFunction(failureCount: number, error: unknown): boolean {

@@ -47,6 +47,20 @@ def _adapter_for(engine: Engine) -> EngineAdapter:
     return _ADAPTERS[engine]
 
 
+def _wait_event_native_name(wait_event_type: str | None, wait_event: str | None) -> str | None:
+    """Map adapter wait fields to `wait_event.native_name`.
+
+    PostgreSQL uses hierarchical ``Type:Event`` (migration 068 seeds).
+    SQL Server uses flat wait-type names (``LCK_M_X``) -- adapters leave
+    ``wait_event_type`` as None and put the type in ``wait_event``.
+    """
+    if wait_event_type and wait_event:
+        return f"{wait_event_type}:{wait_event}"
+    if wait_event:
+        return wait_event
+    return None
+
+
 def _detect_gap(*, started_at: datetime, last_finished_at: datetime | None, interval_ms: int) -> tuple[bool, float | None]:
     """Explicit gap flagging (ADR/roadmap Phase 0 item 8): a run starting more
     than _GAP_THRESHOLD_FACTOR intervals after the previous one finished
@@ -144,6 +158,7 @@ async def run_trivial_collection(instance_id: str, *, interval_ms: int = 60_000)
         except Exception as exc:  # collector must never crash the scheduler on a bad instance
             status = "error"
             error_message = str(exc)
+            await session.rollback()
 
         overhead_ms = (time.perf_counter() - clock_start) * 1000
         finished_at = datetime.now(UTC)
@@ -239,8 +254,8 @@ async def run_session_sample_collection(instance_id: str, *, interval_ms: int = 
                 wait_event_engine: str | None = None
                 wait_event_native_name: str | None = None
                 is_idle = False
-                if row.wait_event_type and row.wait_event:
-                    wait_event_native_name = f"{row.wait_event_type}:{row.wait_event}"
+                wait_event_native_name = _wait_event_native_name(row.wait_event_type, row.wait_event)
+                if wait_event_native_name is not None:
                     wait_event_engine = params.engine.value
                     is_idle = await repository.ensure_wait_event(session, engine=params.engine, native_name=wait_event_native_name)
 
@@ -259,6 +274,7 @@ async def run_session_sample_collection(instance_id: str, *, interval_ms: int = 
         except Exception as exc:  # collector must never crash the scheduler on a bad instance
             status = "error"
             error_message = str(exc)
+            await session.rollback()
 
         overhead_ms = (time.perf_counter() - clock_start) * 1000
         finished_at = datetime.now(UTC)
@@ -354,6 +370,7 @@ async def run_query_stats_collection(instance_id: str, *, interval_ms: int = 60_
         except Exception as exc:  # collector must never crash the scheduler on a bad instance
             status = "error"
             error_message = str(exc)
+            await session.rollback()
 
         overhead_ms = (time.perf_counter() - clock_start) * 1000
         finished_at = datetime.now(UTC)
@@ -484,8 +501,8 @@ async def run_wait_sampling_history_collection(instance_id: str) -> WaitSampling
                 wait_event_engine: str | None = None
                 wait_event_native_name: str | None = None
                 is_idle = False
-                if row.wait_event_type and row.wait_event:
-                    wait_event_native_name = f"{row.wait_event_type}:{row.wait_event}"
+                wait_event_native_name = _wait_event_native_name(row.wait_event_type, row.wait_event)
+                if wait_event_native_name is not None:
                     wait_event_engine = params.engine.value
                     is_idle = await repository.ensure_wait_event(session, engine=params.engine, native_name=wait_event_native_name)
 
@@ -509,6 +526,7 @@ async def run_wait_sampling_history_collection(instance_id: str) -> WaitSampling
         except Exception as exc:  # collector must never crash the scheduler on a bad instance
             status = "error"
             error_message = str(exc)
+            await session.rollback()
 
         overhead_ms = (time.perf_counter() - clock_start) * 1000
         finished_at = datetime.now(UTC)

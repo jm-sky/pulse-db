@@ -10,11 +10,8 @@ sample, enough to prove the seam end to end (roadmap Phase 0 exit criteria).
 
 Phase 1 element 1 (active session sampler) and element 2 (query stats with
 history) add `collect_active_sessions` / `collect_query_stats` below --
-PostgreSQL implemented and validated locally
-(docs/plans/2026-07-30-phase1-diagnostic-core.md); SQL Server explicitly
-raises `NotImplementedError` for now rather than silently returning nothing
-(vision.md/roadmap.md rule: "dwie implementacje adaptera albo jawnie
-zadeklarowany brak wsparcia").
+both PostgreSQL and SQL Server implemented and validated against live
+instances (docs/plans/2026-07-30-phase1-diagnostic-core.md).
 """
 
 from __future__ import annotations

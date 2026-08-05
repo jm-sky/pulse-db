@@ -30,12 +30,10 @@ uzasadnione: rejestracja instancji nie jest operacją czasowo wrażliwą tak
 jak sampling — 5 minut opóźnienia w podjęciu nowej instancji jest
 akceptowalne, a event bus na to byłby przedwczesną złożonością.
 
-**SQL Server dostaje tylko tick `trivial`.** `collect_active_sessions`/
-`collect_query_stats` na `SqlServerEngineAdapter` rzucają
-`NotImplementedError` (Faza 1, [plan Fazy 1](2026-07-30-phase1-diagnostic-core.md)).
-Zaplanowanie tych ticków dla SQL Servera zamieniłoby harmonogram w pętlę
-"złap i zaloguj ten sam wyjątek co sekundę" zamiast zgłosić brak wsparcia
-raz. `_ticks_for_engine` filtruje po silniku.
+**Oba silniki dostają pełny zestaw ticków diagnostycznych** (session
+sample, query stats, rollupy) oraz wspólny `trivial`. `_ticks_for_engine`
+zostało uproszczone po domknięciu Fazy 1 elementów 1–2 dla SQL Server
+([plan Fazy 1](2026-07-30-phase1-diagnostic-core.md), iteracja 2026-08-05).
 
 **`asyncio.Event` + `asyncio.wait_for(event.wait(), timeout=interval)`
 zamiast `asyncio.sleep` + `Task.cancel()`.** Ustawienie zdarzenia przerywa
@@ -86,8 +84,6 @@ członkostwa instancji, pełny cykl życia `Scheduler.run()`/`stop()`) plus
   monitorowanych instancji. `restart: unless-stopped` w Docker Compose
   daje podstawową odporność; nic bardziej wyrafinowanego (wiele replik,
   koordynacja) nie jest w zakresie skali 5–30 instancji z wizji.
-- **SQL Server nadal tylko `trivial`** — niezmienione względem Fazy 1,
-  czeka na dostęp do żywej instancji.
 - **Roadmap kryterium wyjścia z Fazy 1** ("sampler pracuje 7 dni bez
   przerwy") wymaga teraz tylko czasu, nie brakującego kodu — harmonogram
   istnieje i jest zweryfikowany, ale 7-dniowy przebieg ciągły nie był (i
@@ -97,4 +93,4 @@ członkostwa instancji, pełny cykl życia `Scheduler.run()`/`stop()`) plus
 
 - [roadmap.md](../roadmap.md) §3 (Faza 0) — tabela stanu zaktualizowana
 - [plan rollupów](2026-07-31-rollups.md) — poprzednia pozycja w kolejności rekomendacji
-- [plan Fazy 1 — rdzeń diagnostyczny](2026-07-30-phase1-diagnostic-core.md) — źródło ograniczenia "SQL Server tylko trivial"
+- [plan Fazy 1 — rdzeń diagnostyczny](2026-07-30-phase1-diagnostic-core.md)

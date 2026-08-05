@@ -30,7 +30,7 @@ jawnie zadeklarowany brak wsparcia, nie cichy brak funkcji).
 | — | Migracja 070: `query_stat_cursor` (kursor kumulatywnych liczników per zapytanie) + `collector_run.kind` (rozróżnienie tick'ów trivial/session_sample/query_stats, bo mieszanie ich gap-detection przy różnych kadencjach fałszywie wykrywałoby luki) | `backend/migrations/070_create_query_stat_cursor_and_collector_kind.py` |
 | 1 | `EngineAdapter.collect_active_sessions` — PostgreSQL: `pg_stat_activity WHERE state = 'active'`, wait attribution (`wait_event_type:wait_event`), `query_id` gdy dostępny (fallback bez kolumny na starszych/niezkonfigurowanych instancjach) | `backend/app/modules/monitoring/adapters/postgres_adapter.py` |
 | 2 | `EngineAdapter.collect_query_stats` — PostgreSQL: `pg_stat_statements` (cumulative), pusta lista gdy rozszerzenie niezainstalowane (nigdy błąd) | tamże |
-| 1/2 | SQL Server: `collect_active_sessions`/`collect_query_stats` jawnie `NotImplementedError` z odnośnikiem do tego planu | `backend/app/modules/monitoring/adapters/sqlserver_adapter.py` |
+| 1/2 | SQL Server: `collect_active_sessions`/`collect_query_stats` — początkowo `NotImplementedError`; zaimplementowane w iteracji 2026-08-05 | `adapters/sqlserver_adapter.py` |
 | 1 | Kolektor: `run_session_sample_collection` — rozwiązywanie tożsamości zapytania (natywny klucz → istniejący `query` → interim upsert), `session_attr` upsert, `ensure_wait_event` (nieznany wait → `other`, nie blokuje zbierania), zapis `session_sample` | `backend/app/modules/monitoring/collector.py` |
 | 2 | Kolektor: `run_query_stats_collection` — delta względem `query_stat_cursor` (`max(0, current - previous)`, przetrwa reset statystyk), pierwsze wystąpienie zapytania tylko ustanawia kursor bez zapisu delty | tamże |
 | — | Repozytorium: `upsert_query`, `find_query_id_by_engine_key`, `ensure_wait_event`, `upsert_session_attr`, `insert_session_sample`, `get_query_stat_cursor`/`upsert_query_stat_cursor`, `insert_query_stat_delta`, `normalize_query_text`/`compute_norm_hash` | `backend/app/modules/monitoring/repository.py` |
@@ -109,31 +109,53 @@ załadowanym (`shared_preload_libraries`) `pg_wait_sampling`:
 - scenariusz blokady na żywo + `sample-wait-history`: 6 próbek, 1 sesja, `history_period_ms=10`, notatka o jakości wydrukowana; drugie uruchomienie: kolejne 6 nowych próbek (12 łącznie, **bez duplikatów** — watermark poprawnie się przesunął) **i** poprawnie wykryty "ring buffer overrun" (~12,4 s luki, bo 5000-wierszowy bufor przy próbkowaniu wszystkich procesów tła rolluje się w ciągu sekund, nie minut)
 - ograniczenie udokumentowane, nie ukryte: `INNER JOIN` do bieżącego `pg_stat_activity` po `pid` pomija próbki dla sesji, które już się rozłączyły do czasu odczytu — zaobserwowane wprost (syntetyczna sesja blokady rozłączyła się zanim `sample-wait-history` zdążyło przeczytać jej próbki z historii)
 
+## Iteracja 2026-08-05: SQL Server, elementy 1–2
+
+Zewnętrzny bloker (brak żywej instancji) odpadł — do walidacji używamy
+wyłącznie **S2017 / Portal Test** (`10.171.173.212:1436`, `app_db_test`).
+**BSM-SQL13 to produkcja — nie rejestrować, nie uruchamiać kolektora.**
+
+### Zrobione
+
+| # | Element | Gdzie |
+|---|---|---|
+| 1 | `SqlServerEngineAdapter.collect_active_sessions` — `dm_exec_requests` + `dm_exec_sessions` + `dm_exec_sql_text`, filtr `is_user_process = 1` (bez niego ASH to prawie wyłącznie background na `DISPATCHER_QUEUE_SEMAPHORE` itd.), flat `wait_type` jako `wait_event` (bez `Type:Event` — zgodne z seedami migracji 068), `query_hash` jako `engine_query_key` | `adapters/sqlserver_adapter.py` |
+| 2 | `SqlServerEngineAdapter.collect_query_stats` — `dm_exec_query_stats` cumulative (mikrosekundy → ms), filtr do `DB_ID()`, Query Store wykrywany jako capability ale nie jest źródłem MVP (ten sam kształt cumulative→delta co PG) | tamże |
+| — | Collector: `_wait_event_native_name` obsługuje flat SQL Server + hierarchical PG; `session.rollback()` po błędzie ticku (żeby `insert_collector_run` nie padał na aborted transaction) | `collector.py` |
+| — | Scheduler: SQL Server dostaje pełny zestaw ticków diagnostycznych (nie tylko `trivial`) | `scheduler.py` |
+| — | Sanitizacja NUL w tekstach zapytań (`dm_exec_sql_text` cursor API) — bez tego PostgreSQL odrzucał UTF-8 (`CharacterNotInRepertoireError`, potwierdzone na BSM-SQL13) | `repository.normalize_query_text` + adapter |
+
+### Walidacja
+
+Testy jednostkowe (mockowane `pytds`, suite monitoring zielony) plus **walidacja end-to-end na żywych instancjach**:
+
+- **S2017 (Portal Test)** — jedyna dozwolona instancja SQL Server do walidacji
+  deweloperskiej (`app_db_test`, `10.171.173.212:1436`). `detect-capabilities`
+  / `collect` / `sample-sessions` / `collect-query-stats` zweryfikowane.
+- **BSM-SQL13 — NIE używać do walidacji PulseDB.** To baza **produkcyjna**
+  (`app_portal_01`). Przez pomyłkę zarejestrowano ją w sesji 2026-08-05 i
+  uruchomiono kilka ticków diagnostycznych — instancja została natychmiast
+  dezaktywowana (`is_active = false`). Kolejne testy wyłącznie na S2017.
+
 ## Co zostaje
 
-- **SQL Server, elementy 1–2** — ten sam wzorzec co PostgreSQL (DMV
-  `sys.dm_exec_requests`/`sys.dm_os_waiting_tasks` dla sesji,
-  `sys.dm_exec_query_stats`/Query Store dla statystyk), niezaimplementowane.
-  Blokowane tym samym brakiem dostępnej instancji co walidacja adaptera w
-  Fazie 0.
+- **Elementy 3–7 Fazy 1** (plany wykonania, blokady/deadlocki jako
+  zdarzenia, indeksy, baseline) — nie zaczęte. Element 6 (porównanie
+  okresów) jest odblokowany rollupami.
+- **Query Store jako źródło historii poza plan cache** — capability
+  wykrywane, kolektor nadal na `dm_exec_query_stats` (jak
+  `pg_stat_statements`). Osobna decyzja / iteracja.
 - **Automatyczne przełączanie na `pg_wait_sampling`** gdy obecne — dziś
   celowo opt-in (osobna komenda), nie domyślne zachowanie
   `sample-sessions`, z powodów wolumenu opisanych wyżej. Ewentualne
   domyślne włączenie wymagałoby decyzji o budżecie retencji/wolumenu, nie
   tylko kodu.
-- **Sesje, które rozłączyły się między próbką historii a odczytem** —
-  tracone (`INNER JOIN` do bieżącego `pg_stat_activity`), udokumentowane
-  ograniczenie, nie naprawione.
-- **Ciągła pętla / harmonogram 1 s** — dziś `sample-sessions` to pojedynczy
-  tick przez CLI, tak jak trywialny kolektor. Kryterium wyjścia z Fazy 1
-  ("sampler pracuje 7 dni bez przerwy") wymaga schedulera, którego jeszcze
-  nie ma (roadmap Faza 0 element 8, świadomie odłożony) — nie da się go też
-  zweryfikować w efemerycznym środowisku tej sesji.
-- **Elementy 3–7 Fazy 1** (plany wykonania, blokady/deadlocki jako
-  zdarzenia, indeksy, baseline) — nie zaczęte.
-- **Rollupy Fazy 0 (element 7)** — teraz odblokowane danymi z tej iteracji
-  (`session_sample`/`query_stat_delta` mają realne wiersze), ale wciąż
-  nie zaimplementowane; naturalny następny krok.
+- **Sesje, które rozłączyły się między próbką historii a odczytem**
+  (`pg_wait_sampling`) — tracone (`INNER JOIN` do bieżącego
+  `pg_stat_activity`), udokumentowane ograniczenie, nie naprawione.
+- **Kryterium wyjścia Fazy 1** („sampler pracuje 7 dni bez przerwy" na
+  obu silnikach) — scheduler istnieje; wymaga ciągłego uruchomienia, nie
+  weryfikowalne w jednej sesji.
 
 ## Powiązane
 

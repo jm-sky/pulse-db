@@ -1,6 +1,6 @@
 # Plan: Faza 0 — fundament domenowy (elementy 5–9)
 
-**Data:** 2026-07-30 · **Status:** `in progress`
+**Data:** 2026-07-30 · **Status:** `done`
 **Kontekst:** [roadmap.md](../roadmap.md) §3 (Faza 0) · [ADR modelu danych](../research/2026-07-30-data-model.md)
 **Blokował:** elementy 4–9 Fazy 0 były oznaczone `❌ nie rozpoczęte` w tabeli stanu roadmapy
 
@@ -64,10 +64,18 @@ domenowym:
 
 ## Co zostaje
 
+- ~~Walidacja `SqlServerEngineAdapter` na żywej instancji SQL Server~~ — ✅
+  zweryfikowane end-to-end 2026-08-04/2026-08-05 na SQL Server 2022
+  (`16.0.4165.4`, instancja testowa **S2017 / Portal Test**):
+  `detect-capabilities` (grants + Query Store), `collect` (fakty +
+  `collector_run`, pomiar narzutu i offsetu zegara). **BSM-SQL13 (prod)**
+  przypadkowo dotknięta w jednej sesji — natychmiast dezaktywowana; nie
+  używać do dalszej walidacji.
 - ~~Rollupy 1 min/1 h z watermarkiem i top-N+other~~ (ADR §6, roadmap element 7) — ✅ zaimplementowane, patrz [plan rollupów](2026-07-31-rollups.md).
-- ~~Harmonogram/scheduler dla kolektora~~ (roadmap element 8) — ✅ zaimplementowane, patrz [plan schedulera](2026-07-31-scheduler.md). Ostatnia pozycja Fazy 0 bez zewnętrznego blokera jest zamknięta.
-- **Walidacja `SqlServerEngineAdapter` na żywej instancji SQL Server** — brak dostępnego SQL Servera w tym środowisku i w CI. Logika DMV/`HAS_PERMS_BY_NAME` jest napisana i pokryta testami z mockami, ale nieprzetestowana end-to-end. Ryzyko: nazwy kolumn/typy zwracane przez `pytds` mogą się różnić od założeń. Jedyna pozostała pozycja Fazy 0, i to z zewnętrznym blokerem, nie brakiem implementacji.
-- ~~CI: `Frontend` → `Type check` czerwony na `develop`~~ — poza pierwotnym zakresem tej iteracji, ale naprawione przy okazji ([issue 005](../issues/2026-07-30--005--frontend-typecheck-red-on-develop.md)): brakujący `src/lib/` (`cn`, `copyToClipboard`, `valueUpdater`) i `requiresTwoFactorVerification`.
+- ~~Harmonogram/scheduler dla kolektora~~ (roadmap element 8) — ✅ zaimplementowane, patrz [plan schedulera](2026-07-31-scheduler.md).
+- ~~CI: `Frontend` → `Type check` czerwony na `develop`~~ — poza pierwotnym zakresem tej iteracji, ale naprawione przy okazji ([issue 005](../issues/2026-07-30--005--frontend-typecheck-red-on-develop.md)).
+
+**Status Fazy 0:** zamknięta.
 
 ## Powiązane
 

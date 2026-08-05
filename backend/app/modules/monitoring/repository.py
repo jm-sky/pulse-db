@@ -34,8 +34,13 @@ def normalize_query_text(raw_text: str) -> str:
     on top of text that's ideally already engine-normalized; it's also used
     as the interim fallback when a session's query hasn't appeared in
     pg_stat_statements yet (query still running, first execution).
+
+    Strips NUL bytes: SQL Server cursor/`sp_cursor` text from
+    ``dm_exec_sql_text`` can embed ``\\x00``, which PostgreSQL rejects as
+    invalid UTF-8 (confirmed live on BSM-SQL13).
     """
-    return _WHITESPACE_RE.sub(" ", raw_text).strip()
+    cleaned = raw_text.replace("\x00", "")
+    return _WHITESPACE_RE.sub(" ", cleaned).strip()
 
 
 def compute_norm_hash(normalized_text: str) -> str:

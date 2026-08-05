@@ -120,7 +120,7 @@ Nakłada się częściowo z planem [2026-07-30-boilerplate-from-family.md](plans
 | 2. FAQ licencyjne | ✅ [docs/licensing-faq.md](licensing-faq.md) |
 | 3. Auth użytkownik + hasło + RBAC, OAuth/2FA env-off | ✅ z boilerplate'u |
 | 4. Poświadczenia monitorowanych instancji szyfrowane | ✅ Fernet, klucz tylko w `CREDENTIALS_ENCRYPTION_KEY` — [`app/modules/monitoring/crypto.py`](../backend/app/modules/monitoring/crypto.py) |
-| 5. `EngineAdapter` z dwiema implementacjami | ✅ interfejs + Postgres (zweryfikowany end-to-end lokalnie) + SQL Server (zaimplementowany, **niezweryfikowany na żywej instancji** — brak dostępu w tym środowisku/CI) |
+| 5. `EngineAdapter` z dwiema implementacjami | ✅ interfejs + Postgres + SQL Server — zweryfikowane end-to-end (PG lokalnie; SQL Server 2022: **S2017 test only**; BSM-SQL13 prod — przypadkowo, od razu wyłączona) |
 | 6. Model danych: wymiary + fakty + szew zakresu | ✅ migracje [`068`](../backend/migrations/068_create_monitoring_dimensions.py)/[`069`](../backend/migrations/069_create_monitoring_facts.py), partycjonowanie deklaratywne dzienne zweryfikowane na lokalnym PostgreSQL 16 |
 | 7. Warstwa rollupów 1 min / 1 h | ✅ `ash_1m`/`ash_1h`/`query_stat_1h`, watermark + top-N+other, zweryfikowane end-to-end na lokalnym PostgreSQL 16 (self-monitoring) — [plan rollupów](plans/2026-07-31-rollups.md) |
 | 8. Runtime kolektora: harmonogram, idempotencja, luki, narzut | ✅ pomiar narzutu + jawne oznaczanie luk (`collector_run`); **harmonogram** — `Scheduler` (`cli monitoring run-scheduler` + serwis Docker Compose), zweryfikowany end-to-end na lokalnym PostgreSQL 16 — [plan schedulera](plans/2026-07-31-scheduler.md) |
@@ -128,9 +128,9 @@ Nakłada się częściowo z planem [2026-07-30-boilerplate-from-family.md](plans
 
 Porządki po boilerplate ([issue 001](issues/2026-07-30--001--boilerplate-dead-code-cleanup.md)) usunęły pozostałości domen `billing` / `tenants` / `feature_limits` / gear. Migracja [`067`](../backend/migrations/067_drop_openrouter_api_token.py) czeka na uruchomienie na bazie deweloperskiej.
 
-Szczegóły elementów 4–9: [plan Fazy 0 — fundament domenowy](plans/2026-07-30-phase0-foundation.md). Przy okazji naprawiony martwy import, który wywalał `create_app()` i cały pytest w CI od commitu, który miał to CI wprowadzić ([issue 004](issues/2026-07-30--004--dead-logs-import-broke-ci-pytest.md)) — status „CI w pełni egzekwowane" w tabeli powyżej był nieaktualny do tej naprawy.
+Szczegóły elementów 4–9: [plan Fazy 0 — fundament domenowy](plans/2026-07-30-phase0-foundation.md) (`done`). Przy okazji naprawiony martwy import, który wywalał `create_app()` i cały pytest w CI od commitu, który miał to CI wprowadzić ([issue 004](issues/2026-07-30--004--dead-logs-import-broke-ci-pytest.md)) — status „CI w pełni egzekwowane" w tabeli powyżej był nieaktualny do tej naprawy.
 
-**Korekta estymaty:** elementy 1–3 były w praktyce gotowe przed startem fazy, więc **6 tygodni zostaje zredukowane do ~4** 🟡. Cały zakres Fazy 0 bez zewnętrznego blokera (elementy 7 i 8) jest zamknięty; pozostaje wyłącznie walidacja SQL Server na żywej instancji (zewnętrzny bloker: brak dostępu w tym środowisku/CI).
+**Korekta estymaty:** elementy 1–3 były w praktyce gotowe przed startem fazy, więc **6 tygodni zostaje zredukowane do ~4** 🟡. **Faza 0 zamknięta** (w tym live SQL Server).
 
 ---
 
@@ -155,15 +155,15 @@ Kolejność nie jest dowolna: sampler pierwszy, bo to jest produkt; zapytania za
 - detekcja zmiany planu wyłapuje zmianę wywołaną ręcznie w teście
 - rekomendacja indeksu zawiera dowody i DDL, nie samo „dodaj indeks"
 
-### Stan na 2026-07-30
+### Stan na 2026-08-05
 
 | Element | Stan |
 |---|---|
-| 1. Sampler aktywnych sesji, atrybucja wait → sesja → zapytanie | 🟡 **PostgreSQL**: `collect_active_sessions` (`pg_stat_activity`), zweryfikowane end-to-end lokalnie z realnym lockiem (jedna sesja `Lock:transactionid`, druga na `Timeout:PgSleep` — nieznany wait, auto-zarejestrowany jako `other`, zbieranie nie padło). `pg_wait_sampling` opcjonalne źródło wyższej jakości: **zaimplementowane jako opt-in** (`cli monitoring sample-wait-history`), zweryfikowane na żywo (10ms okres próbkowania vs. ~1s pollera, ~100× więcej próbek na aktywną sesję — stąd opt-in, nie domyślne, dopóki nie ma decyzji o budżecie wolumenu). **SQL Server**: `NotImplementedError`, jawnie zadeklarowany brak wsparcia — nie zaczęte. Harmonogram 1 s (ciągła pętla) nie istnieje — to nadal pojedynczy tick przez CLI, jak trywialny kolektor |
-| 2. Top queries z historią | 🟡 **PostgreSQL**: `collect_query_stats` (`pg_stat_statements`), delta liczona względem `query_stat_cursor` (migracja 070), zweryfikowana end-to-end lokalnie (drugi przebieg poprawnie zwrócił deltę względem pierwszego). **SQL Server**: `NotImplementedError` — DMV/Query Store nie zaimplementowane |
+| 1. Sampler aktywnych sesji, atrybucja wait → sesja → zapytanie | ✅ **PostgreSQL**: `pg_stat_activity` + opt-in `pg_wait_sampling_history`. ✅ **SQL Server**: `dm_exec_requests`/`dm_exec_sessions` (filtr `is_user_process = 1`), zweryfikowane na **S2017 (test)** |
+| 2. Top queries z historią | ✅ **PostgreSQL**: `pg_stat_statements` + `query_stat_cursor`. ✅ **SQL Server**: `dm_exec_query_stats` + ten sam kursor/delta (Query Store wykrywany, nie jest jeszcze źródłem MVP) |
 | 3–7 | ❌ nie zaczęte |
 
-Szczegóły: [plan Fazy 1 — rdzeń diagnostyczny, slice PostgreSQL](plans/2026-07-30-phase1-diagnostic-core.md).
+Szczegóły: [plan Fazy 1 — rdzeń diagnostyczny](plans/2026-07-30-phase1-diagnostic-core.md).
 
 ---
 
@@ -262,33 +262,34 @@ Największa nierozwiązana luka projektu (§6 vision: *sam AGPLv3 nie generuje a
 
 ---
 
-## 11. Stan na koniec sesji 2026-07-31 i rekomendacja kolejnych kroków
+## 11. Stan na 2026-08-05 i rekomendacja kolejnych kroków
 
-**Gotowe do przejęcia przez kolejną sesję.** Poniżej zwięzły stan + priorytety, żeby nie trzeba było rekonstruować kontekstu z historii commitów.
+**Gotowe do przejęcia przez kolejną sesję.**
 
 ### Stan faktyczny
 
 | Obszar | Stan |
 |---|---|
-| Faza 0 (fundament) | **Zamknięta poza jedną pozycją z zewnętrznym blokerem** (walidacja `SqlServerEngineAdapter` na żywej instancji) — patrz [plan Fazy 0](plans/2026-07-30-phase0-foundation.md) „Co zostaje" |
-| Faza 0, element 7 (rollupy `ash_1m`/`ash_1h`/`query_stat_1h`) | ✅ zaimplementowane i zweryfikowane end-to-end na żywej instancji (self-monitoring): watermark per rollup, top-N+other, `ash_1h` liczony kaskadowo z `ash_1m`. Szczegóły: [plan rollupów](plans/2026-07-31-rollups.md) |
-| Faza 0, element 8 (harmonogram) | ✅ `Scheduler` — własna pętla per rodzaj ticku i instancję, odpytywane członkostwo instancji, globalna pętla utrzymania partycji, `cli monitoring run-scheduler` + serwis Docker Compose, zweryfikowany end-to-end (czysty SIGINT shutdown, realne ticki na kadencji ~1 s). Szczegóły: [plan schedulera](plans/2026-07-31-scheduler.md) |
-| Faza 1, elementy 1–2 (sampler + top queries) | **PostgreSQL: zaimplementowane i zweryfikowane end-to-end** na żywej instancji (self-monitoring) — `pg_stat_activity` sampler, `pg_stat_statements` delty, plus opcjonalne źródło `pg_wait_sampling_history` (opt-in, `sample-wait-history`). **SQL Server: `NotImplementedError`, jawnie zadeklarowane, nie zaczęte.** Szczegóły: [plan Fazy 1](plans/2026-07-30-phase1-diagnostic-core.md) |
-| Faza 1, elementy 3–7 | Nie zaczęte. Element 6 (porównanie okresów) i element 7 (baseline sezonowy) są teraz odblokowane danymi z rollupów |
-| Faza 0a (spike'e, wywiady, PRD) | Nie zaczęte — patrz §2 wyżej, wciąż otwarte od startu projektu |
+| Faza 0 (fundament) | ✅ **Zamknięta** — w tym live SQL Server (walidacja na S2017 test). [plan Fazy 0](plans/2026-07-30-phase0-foundation.md) |
+| Faza 0, element 7 (rollupy) | ✅ [plan rollupów](plans/2026-07-31-rollups.md) |
+| Faza 0, element 8 (harmonogram) | ✅ [plan schedulera](plans/2026-07-31-scheduler.md) — obie silniki dostają pełny zestaw ticków |
+| Faza 1, elementy 1–2 | ✅ **PostgreSQL + SQL Server** zaimplementowane i zweryfikowane end-to-end. [plan Fazy 1](plans/2026-07-30-phase1-diagnostic-core.md) |
+| Faza 1, elementy 3–7 | Nie zaczęte. Element 6 (porównanie okresów) odblokowany rollupami |
+| Faza 0a (spike'e, wywiady, PRD) | Nie zaczęte — patrz §2; teza estate mieszanego nadal 🟡 |
+| Desktop UI shell | `in progress` — chrome + mock; [plan](plans/2026-08-04-desktop-ui-shell.md) |
 
 ### Rekomendacja — w tej kolejności
 
-1. **SQL Server, elementy 1–2 Fazy 1** — ten sam wzorzec co PostgreSQL (DMV + Query Store), zablokowane wyłącznie brakiem dostępnej instancji w tym środowisku/CI. Teraz jedyna pozycja Fazy 0 z zewnętrznym blokerem i jedna z dwóch pozostałych w Fazie 1 przed elementem 6. **Priorytet, gdy tylko dostęp do SQL Servera się pojawi** — do tego czasu produkt jest jednosilnikowy mimo pozycjonowania „oba silniki, jeden panel" (§3.1 vision), co jest ryzykiem widocznym, nie ukrytym.
-2. **Faza 1, element 6** (porównanie okresów / regresja zapytania, baseline poziom 1) — tanie teraz, bo rollupy już są (dokładnie uzasadnienie z roadmapy §4) i harmonogram już je zasila w tle. Naturalny następny krok bez zewnętrznego blokera.
-3. **Faza 1, elementy 3–5** (plany wykonania + detekcja zmiany planu, blokady/deadlocki jako zdarzenia, analiza indeksów) — kolejność z roadmapy, niezmieniona.
-4. **Faza 1, element 7** (baseline sezonowy percentylowy) — wymaga kilku tygodni realnej historii w `ash_1h`/`query_stat_1h`, nie tylko istnienia kodu rollupu; naturalnie później niż elementy 3–6. Harmonogram istnieje więc historia teraz faktycznie może się gromadzić, ale kalendarzowo (tygodnie), nie w ramach jednej sesji.
-5. **Faza 0a** (wywiady z DBA, spike'e, PRD, ADR biblioteki wykresów) — formalnie wciąż przed Fazą 0 w kolejności roadmapy, ale praktycznie ominięta, bo praca techniczna ruszyła bez niej. Ryzyko nazwane wprost: **teza produktu („estate mieszane PG+SQL Server, przełączanie narzędzi boli") wciąż nie jest zweryfikowana rozmowami z użytkownikami** — cała inwestycja w SQL Server (pozycja 1 wyżej) stoi na założeniu, nie na potwierdzeniu. Warto rozważyć równolegle, nie odkładać w nieskończoność.
+1. **Faza 1, element 6** (porównanie okresów / regresja zapytania, baseline poziom 1) — tanie teraz, bo rollupy + obie silniki zasilają fakty. Naturalny następny krok bez zewnętrznego blokera.
+2. **Faza 1, elementy 3–5** (plany wykonania + detekcja zmiany planu, blokady/deadlocki, analiza indeksów) — kolejność z roadmapy; SQL Server ma gotowe wzorce zapytań w `sql-monitor/collector/queries/`.
+3. **Faza 1, element 7** (baseline sezonowy percentylowy) — wymaga kilku tygodni historii w rollupach.
+4. **Faza 0a** (wywiady z DBA, PRD, ADR biblioteki wykresów) — równolegle; teza produktu wciąż niezweryfikowana rozmowami.
 
 ### Co NIE jest zalecane teraz
 
-- Automatyczne (nie opt-in) przełączenie na `pg_wait_sampling` jako domyślne źródło — wymaga decyzji o budżecie retencji/wolumenu (~100× więcej wierszy), nie tylko kodu; patrz [plan Fazy 1](plans/2026-07-30-phase1-diagnostic-core.md) sekcja „richer source".
-- Ciągnięcie Fazy 1 elementów 6–7 (baseline) przed rollupami — z ADR: baseline liczy się z kubełków godzinowych rollupu, nie z surowych próbek.
+- Automatyczne (nie opt-in) przełączenie na `pg_wait_sampling` jako domyślne źródło — wymaga decyzji o budżecie retencji/wolumenu.
+- Query Store jako zamiennik `dm_exec_query_stats` przed domknięciem elementów 3–6 — capability jest, kształt delty działa na DMV.
+- Pełne UI Waits przed publicznym API (API-first; shell to tylko chrome + mock).
 
 ---
 
@@ -297,6 +298,6 @@ Największa nierozwiązana luka projektu (§6 vision: *sam AGPLv3 nie generuje a
 - [vision.md](vision.md) — zakres, zasady, non-goals, kryteria sukcesu
 - `prd.md` — wymagania i kryteria akceptacji (do napisania w Fazie 0a)
 - [plans/2026-07-30-boilerplate-from-family.md](plans/2026-07-30-boilerplate-from-family.md) — fundament techniczny, `in progress`
-- [plans/2026-07-30-phase0-foundation.md](plans/2026-07-30-phase0-foundation.md) — Faza 0 elementy 4–9, `in progress`
-- [plans/2026-07-30-phase1-diagnostic-core.md](plans/2026-07-30-phase1-diagnostic-core.md) — Faza 1 elementy 1–2 (slice PostgreSQL), `in progress`
+- [plans/2026-07-30-phase0-foundation.md](plans/2026-07-30-phase0-foundation.md) — Faza 0 elementy 4–9, `done`
+- [plans/2026-07-30-phase1-diagnostic-core.md](plans/2026-07-30-phase1-diagnostic-core.md) — Faza 1 elementy 1–2 (PostgreSQL + SQL Server), `in progress`
 - [research/opportunities.md](research/opportunities.md) — źródło zakresu MVP i rekomendacji kolejnych kroków

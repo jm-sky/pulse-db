@@ -141,7 +141,7 @@ def sample_sessions(
     instance_id: str = typer.Argument(..., help="Instance ID from list-instances"),
     interval_ms: int = typer.Option(1_000, "--interval-ms", help="Expected cadence, used for gap detection"),
 ) -> None:
-    """Run one ASH tick: snapshot active sessions with wait attribution (Phase 1 element 1, PostgreSQL only)."""
+    """Run one ASH tick: snapshot active sessions with wait attribution (Phase 1 element 1)."""
     from app.modules.monitoring.collector import run_session_sample_collection
 
     result = asyncio.run(run_session_sample_collection(instance_id, interval_ms=interval_ms))

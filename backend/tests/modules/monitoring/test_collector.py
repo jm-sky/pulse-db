@@ -221,6 +221,56 @@ async def test_run_session_sample_collection_resolves_query_and_wait_state() -> 
 
 
 @pytest.mark.asyncio
+async def test_run_session_sample_collection_maps_flat_sqlserver_wait_names() -> None:
+    """SQL Server wait types are flat (migration 068); type:event is PostgreSQL-only."""
+    mock_session = AsyncMock()
+    sqlserver_params = InstanceConnectionParams(
+        host="mssql.example",
+        port=1433,
+        database="pulse_db",
+        username="backend",
+        password="changeme",
+        engine=Engine.SQLSERVER,
+    )
+
+    with (
+        patch("app.modules.monitoring.collector.AsyncSessionLocal", _fake_session_factory(mock_session)),
+        patch("app.modules.monitoring.collector.repository") as mock_repo,
+        patch("app.modules.monitoring.collector._adapter_for") as mock_adapter_for,
+    ):
+        mock_repo.get_connection_params = AsyncMock(return_value=sqlserver_params)
+        mock_repo.get_last_collector_run = AsyncMock(return_value=(None, None))
+        mock_repo.insert_collector_run = AsyncMock(return_value="run-ash-mssql")
+        mock_repo.find_query_id_by_engine_key = AsyncMock(return_value="query-1")
+        mock_repo.upsert_session_attr = AsyncMock(return_value="attr-1")
+        mock_repo.ensure_wait_event = AsyncMock(return_value=False)
+        mock_repo.insert_session_sample = AsyncMock()
+
+        mock_adapter = AsyncMock()
+        mock_adapter.collect_active_sessions = AsyncMock(
+            return_value=[
+                ActiveSessionRow(
+                    db_user="app",
+                    application_name="portal",
+                    client_host="10.0.0.5",
+                    wait_event_type=None,
+                    wait_event="LCK_M_X",
+                    query_text="UPDATE t SET x = 1",
+                    engine_query_key="0xABC",
+                ),
+            ]
+        )
+        mock_adapter_for.return_value = mock_adapter
+
+        result = await run_session_sample_collection("instance-mssql", interval_ms=1_000)
+
+    assert result.status == "ok"
+    assert mock_repo.insert_session_sample.await_args.kwargs["wait_event_native_name"] == "LCK_M_X"
+    mock_repo.ensure_wait_event.assert_awaited_once()
+    assert mock_repo.ensure_wait_event.await_args.kwargs["native_name"] == "LCK_M_X"
+
+
+@pytest.mark.asyncio
 async def test_run_session_sample_collection_records_error_without_raising() -> None:
     mock_session = AsyncMock()
 

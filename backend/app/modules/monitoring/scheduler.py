@@ -15,11 +15,9 @@ Design:
 - One `TickSpec` per cadence (name, interval, the tick coroutine). Intervals
   are independent -- a 1s session-sample loop and a 60s query-stats loop for
   the same instance run concurrently, not interleaved on a shared clock.
-- SQL Server instances only get the `trivial` tick (the only one that isn't
-  `NotImplementedError` there, per docs/plans/2026-07-30-phase1-diagnostic-core.md).
-  Scheduling the PostgreSQL-only ticks for SQL Server would spend every
-  cadence catching-and-logging the same NotImplementedError instead of
-  reporting the gap once at registration time.
+- Both engines get the full diagnostic tick set (session sample, query
+  stats, rollups) once Phase 1 elements 1–2 are implemented for each;
+  `trivial` remains the shared health-check tick.
 - Instance membership is polled (not push-based) every
   `instance_refresh_interval_seconds` (default 5 min) -- newly registered or
   deactivated instances are picked up/torn down without restarting the
@@ -66,7 +64,7 @@ class TickSpec:
 # relying on each function's own default -- ADR §4's "interval_ms is data,
 # not a constant" discipline applies here too: the scheduler is the one
 # place that decides real-world cadence, so it should say so, not assume.
-_POSTGRES_ONLY_TICKS: tuple[TickSpec, ...] = (
+_DIAGNOSTIC_TICKS: tuple[TickSpec, ...] = (
     TickSpec("session_sample", 1.0, functools.partial(run_session_sample_collection, interval_ms=1_000)),
     TickSpec("query_stats", 60.0, functools.partial(run_query_stats_collection, interval_ms=60_000)),
     TickSpec("rollup_ash_1m", 60.0, run_ash_1m_rollup),
@@ -77,9 +75,9 @@ _UNIVERSAL_TICKS: tuple[TickSpec, ...] = (TickSpec("trivial", 60.0, functools.pa
 
 
 def _ticks_for_engine(engine: Engine) -> tuple[TickSpec, ...]:
-    if engine == Engine.POSTGRESQL:
-        return _UNIVERSAL_TICKS + _POSTGRES_ONLY_TICKS
-    return _UNIVERSAL_TICKS
+    # engine retained for call-site clarity / future per-engine cadence tweaks
+    _ = engine
+    return _UNIVERSAL_TICKS + _DIAGNOSTIC_TICKS
 
 
 def _log_tick_result(instance_id: str, tick_name: str, result: Any) -> None:

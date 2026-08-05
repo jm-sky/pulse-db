@@ -99,6 +99,41 @@ async def register_instance(
     return instance_id
 
 
+async def update_instance_connection(
+    *,
+    instance_id: str,
+    host: str,
+    port: int,
+    database: str,
+    username: str,
+    password: str,
+) -> None:
+    """Update connection params for a registered instance (re-encrypts password)."""
+    encrypted_password = encrypt_secret(password)
+    async with AsyncSessionLocal() as session:
+        await session.execute(
+            text("""
+                UPDATE monitored_instance
+                SET host = :host,
+                    port = :port,
+                    database_name = :database_name,
+                    username = :username,
+                    encrypted_password = :encrypted_password,
+                    updated_at = now()
+                WHERE id = :id
+                """),
+            {
+                "id": instance_id,
+                "host": host,
+                "port": port,
+                "database_name": database,
+                "username": username,
+                "encrypted_password": encrypted_password,
+            },
+        )
+        await session.commit()
+
+
 async def list_instances() -> list[MonitoredInstanceRecord]:
     async with AsyncSessionLocal() as session:
         result = await session.execute(text("""
@@ -834,6 +869,122 @@ async def get_query_texts(session: AsyncSession, *, query_ids: list[str]) -> dic
 async def get_wait_class_labels(session: AsyncSession) -> dict[str, str]:
     result = await session.execute(text("SELECT id, label FROM wait_class"))
     return {row.id: row.label for row in result}
+
+
+# --- REST read APIs: instance list + waits timeline -------------------------
+
+
+@dataclass(frozen=True, slots=True)
+class InstanceListRow:
+    id: str
+    name: str
+    engine: Engine
+    host: str
+    port: int
+    is_active: bool
+    last_sample_at: datetime | None
+    last_collector_finished_at: datetime | None
+    last_collector_status: str | None
+    last_collector_gap_detected: bool | None
+
+
+@dataclass(frozen=True, slots=True)
+class WaitsTimelineRow:
+    bucket_start: datetime
+    wait_class_id: str | None
+    wait_seconds: float
+    sample_count: int
+    is_other: bool
+
+
+async def list_instances_with_status(session: AsyncSession) -> list[InstanceListRow]:
+    result = await session.execute(
+        text("""
+            SELECT
+                mi.id,
+                mi.name,
+                mi.engine,
+                mi.host,
+                mi.port,
+                mi.is_active,
+                ls.last_sample_at,
+                lr.finished_at AS last_collector_finished_at,
+                lr.status AS last_collector_status,
+                lr.gap_detected AS last_collector_gap_detected
+            FROM monitored_instance mi
+            LEFT JOIN LATERAL (
+                SELECT MAX(sampled_at) AS last_sample_at
+                FROM session_sample ss
+                WHERE ss.instance_id = mi.id
+            ) ls ON TRUE
+            LEFT JOIN LATERAL (
+                SELECT finished_at, status, gap_detected
+                FROM collector_run cr
+                WHERE cr.instance_id = mi.id AND cr.kind = 'session_sample'
+                ORDER BY cr.started_at DESC
+                LIMIT 1
+            ) lr ON TRUE
+            ORDER BY mi.created_at
+            """),
+    )
+    return [
+        InstanceListRow(
+            id=row.id,
+            name=row.name,
+            engine=Engine(row.engine),
+            host=row.host,
+            port=row.port,
+            is_active=row.is_active,
+            last_sample_at=row.last_sample_at,
+            last_collector_finished_at=row.last_collector_finished_at,
+            last_collector_status=row.last_collector_status,
+            last_collector_gap_detected=row.last_collector_gap_detected,
+        )
+        for row in result
+    ]
+
+
+async def fetch_waits_timeline(
+    session: AsyncSession,
+    *,
+    instance_id: str,
+    period_start: datetime,
+    period_end: datetime,
+    granularity: str,
+) -> list[WaitsTimelineRow]:
+    """Instance-level wait seconds per bucket and wait class from ash rollups."""
+    table = "ash_1m" if granularity == "1m" else "ash_1h"
+    result = await session.execute(
+        text(f"""
+            SELECT
+                bucket_start,
+                wait_class_id,
+                SUM(wait_seconds) AS wait_seconds,
+                SUM(sample_count)::bigint AS sample_count,
+                BOOL_OR(is_other) AS is_other
+            FROM "{table}"
+            WHERE instance_id = :instance_id
+                AND bucket_start >= :period_start
+                AND bucket_start < :period_end
+            GROUP BY bucket_start, wait_class_id
+            ORDER BY bucket_start, wait_class_id NULLS LAST
+            """),
+        {
+            "instance_id": instance_id,
+            "period_start": period_start,
+            "period_end": period_end,
+        },
+    )
+    return [
+        WaitsTimelineRow(
+            bucket_start=row.bucket_start,
+            wait_class_id=row.wait_class_id,
+            wait_seconds=float(row.wait_seconds),
+            sample_count=int(row.sample_count),
+            is_other=bool(row.is_other),
+        )
+        for row in result
+    ]
 
 
 async def get_latest_clock_offset_ms(session: AsyncSession, *, instance_id: str) -> float | None:

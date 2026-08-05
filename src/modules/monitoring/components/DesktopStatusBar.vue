@@ -2,7 +2,7 @@
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useWorkspaceContext } from '@/modules/monitoring/composables/useWorkspaceContext'
-import type { CollectorStatus } from '@/modules/monitoring/mocks/instances'
+import type { CollectorStatus } from '@/modules/monitoring/types/monitoring.type'
 
 const { t } = useI18n()
 const { selectedInstance, timeRangeLabel } = useWorkspaceContext()
@@ -33,9 +33,6 @@ const lastSample = computed(() => {
 
 <template>
   <footer class="flex h-6 shrink-0 items-center gap-3 border-t border-border bg-muted/50 px-2 font-mono text-[11px] text-muted-foreground">
-    <span class="rounded bg-muted px-1 text-[10px] uppercase tracking-wide">
-      {{ t('monitoring.status.mock') }}
-    </span>
     <span class="truncate">{{ selectedInstance?.name ?? t('monitoring.status.noInstance') }}</span>
     <span class="text-border">|</span>
     <span>{{ engineLabel }}</span>

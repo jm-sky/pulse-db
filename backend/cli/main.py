@@ -63,6 +63,7 @@ COMMAND_GROUPS = {
         "name": "Monitoring Domain",
         "commands": {
             "register-instance": "Register a monitored instance",
+            "register-dev-instances": "Register dev instances (pulse-db, sql-monitor, taxorder-ksef)",
             "list-instances": "List registered instances",
             "detect-capabilities": "Detect and store engine capabilities for an instance",
             "collect": "Run one trivial collector tick against an instance",

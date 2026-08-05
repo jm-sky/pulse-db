@@ -1,10 +1,14 @@
 <script setup lang="ts">
 import DesktopWorkspaceLayout from '@/modules/monitoring/components/DesktopWorkspaceLayout.vue'
-import WaitsChartPlaceholder from '@/modules/monitoring/components/WaitsChartPlaceholder.vue'
+import WaitsChart from '@/modules/monitoring/components/WaitsChart.vue'
+
+defineProps<{
+  instanceId: string
+}>()
 </script>
 
 <template>
   <DesktopWorkspaceLayout active-tab="waits">
-    <WaitsChartPlaceholder />
+    <WaitsChart :instance-id="instanceId" />
   </DesktopWorkspaceLayout>
 </template>

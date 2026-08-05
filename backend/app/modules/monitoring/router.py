@@ -1,7 +1,7 @@
-"""FastAPI router for monitoring read APIs (Phase 1 element 6)."""
+"""FastAPI router for monitoring read APIs."""
 
 from datetime import datetime
-from typing import Annotated
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -10,7 +10,10 @@ from app.core.database import get_db
 from app.modules.auth.dependencies import CurrentUser
 
 from . import period_comparison as pc
+from . import waits_timeline as wt
 from .schemas import (
+    MonitoredInstanceListResponse,
+    MonitoredInstanceResponse,
     PeriodComparisonSummaryResponse,
     PeriodMetricsResponse,
     PeriodWindowResponse,
@@ -18,6 +21,9 @@ from .schemas import (
     QueryPeriodComparisonResponse,
     WaitPeriodComparisonItem,
     WaitPeriodMetricsResponse,
+    WaitsTimelinePointResponse,
+    WaitsTimelineResponse,
+    WaitsTimelineSeriesResponse,
 )
 
 router = APIRouter(prefix="/monitoring", tags=["Monitoring"])
@@ -50,10 +56,92 @@ def _period_window(window: pc.PeriodWindow) -> PeriodWindowResponse:
 
 
 @router.get(
+    "/instances",
+    response_model=MonitoredInstanceListResponse,
+    summary="List monitored instances",
+    description="Registered instances with derived collector health from session sampling.",
+)
+async def list_instances(
+    _: CurrentUser,
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> MonitoredInstanceListResponse:
+    result = await wt.list_instance_summaries(db)
+    return MonitoredInstanceListResponse(
+        instances=[
+            MonitoredInstanceResponse(
+                id=row.id,
+                name=row.name,
+                engine=row.engine,
+                host=row.host,
+                port=row.port,
+                isActive=row.is_active,
+                collectorStatus=row.collector_status,
+                lastSampleAt=row.last_sample_at,
+            )
+            for row in result.instances
+        ],
+    )
+
+
+@router.get(
+    "/instances/{instance_id}/waits/timeline",
+    response_model=WaitsTimelineResponse,
+    summary="Wait time timeline for an instance",
+    description=(
+        "Stacked-bar source data: per-bucket wait seconds by wait class from "
+        "`ash_1m` (≤24h default) or `ash_1h` rollups."
+    ),
+)
+async def get_instance_waits_timeline(
+    instance_id: str,
+    _: CurrentUser,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    start: datetime = Query(description="Window start (inclusive)"),
+    end: datetime = Query(description="Window end (exclusive)"),
+    granularity: Literal["1m", "1h"] | None = Query(
+        default=None,
+        description="Rollup table; auto-selects 1m for ranges ≤24h when omitted",
+    ),
+) -> WaitsTimelineResponse:
+    result = await wt.get_waits_timeline(
+        db,
+        instance_id=instance_id,
+        start=start,
+        end=end,
+        granularity=granularity,
+    )
+    return WaitsTimelineResponse(
+        instanceId=result.instance_id,
+        granularity=result.granularity,
+        start=result.start,
+        end=result.end,
+        series=[
+            WaitsTimelineSeriesResponse(
+                waitClassId=series.wait_class_id,
+                label=series.label,
+                points=[
+                    WaitsTimelinePointResponse(
+                        bucketStart=point.bucket_start,
+                        waitSeconds=point.wait_seconds,
+                        sampleCount=point.sample_count,
+                    )
+                    for point in series.points
+                ],
+            )
+            for series in result.series
+        ],
+    )
+
+
+@router.get(
     "/instances/{instance_id}/queries/period-comparison",
     response_model=QueryPeriodComparisonResponse,
     summary="Compare query stats between two periods",
-    description=("Baseline level 1: compare `query_stat_1h` rollups for each query between " "a baseline window and a current window. Returns per-query deltas and " "flags regressions where average time increased."),
+    description=(
+        "Baseline level 1: compare `query_stat_1h` rollups for each query between "
+        "a baseline window and a current window. Returns per-query deltas and "
+        "flags regressions where average time increased."
+    ),
 )
 async def compare_query_periods(
     instance_id: str,
@@ -105,7 +193,10 @@ async def compare_query_periods(
     "/instances/{instance_id}/period-comparison/summary",
     response_model=PeriodComparisonSummaryResponse,
     summary="Compare instance totals and wait classes between two periods",
-    description=("Baseline level 1: instance-wide query totals from `query_stat_1h` plus " "wait-class breakdown from `ash_1h` for baseline vs current windows."),
+    description=(
+        "Baseline level 1: instance-wide query totals from `query_stat_1h` plus "
+        "wait-class breakdown from `ash_1h` for baseline vs current windows."
+    ),
 )
 async def compare_period_summary(
     instance_id: str,

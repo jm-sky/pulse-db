@@ -62,3 +62,38 @@ class PeriodComparisonSummaryResponse(BaseModel):
     instanceAvgTimeMsDelta: float | None = None
     instanceAvgTimeMsDeltaPct: float | None = None
     waits: list[WaitPeriodComparisonItem]
+
+
+class MonitoredInstanceResponse(BaseModel):
+    id: str
+    name: str
+    engine: str
+    host: str
+    port: int
+    isActive: bool
+    collectorStatus: str
+    lastSampleAt: datetime | None = None
+
+
+class MonitoredInstanceListResponse(BaseModel):
+    instances: list[MonitoredInstanceResponse]
+
+
+class WaitsTimelinePointResponse(BaseModel):
+    bucketStart: datetime
+    waitSeconds: float
+    sampleCount: int
+
+
+class WaitsTimelineSeriesResponse(BaseModel):
+    waitClassId: str | None = None
+    label: str
+    points: list[WaitsTimelinePointResponse]
+
+
+class WaitsTimelineResponse(BaseModel):
+    instanceId: str
+    granularity: str
+    start: datetime
+    end: datetime
+    series: list[WaitsTimelineSeriesResponse]

@@ -102,6 +102,25 @@ STATE` znaczy, że kolektor będzie działał w trybie ograniczonym (trywialny
 `collect` nadal zadziała — liczy aktywne sesje z zapytania dostępnego każdemu
 loginowi — ale Faza 1 sampler i top queries tego wymagają).
 
+## Lokalny development (sibling Postgres)
+
+Do szybkiego self-monitoringu w Dockerze:
+
+```bash
+bash scripts/monitoring/register_dev_instances.sh   # pulse-db-local + sql-monitor + taxorder-ksef
+bash scripts/monitoring/run_scheduler.sh            # albo: docker compose up -d scheduler
+```
+
+| Instancja | Połączenie | Grant (raz) |
+|-----------|------------|-------------|
+| `pulse-db-local` | `db:5432` w sieci Compose | zwykle niepotrzebny (konto app) |
+| `sql-monitor-postgres` | `host.docker.internal:5433` | `GRANT pg_monitor TO sqlmonitor;` |
+| `taxorder-ksef-local` | `taxorder-ksef-db-dev:5432` (sieć `taxorder-ksef-dev`) | `GRANT pg_monitor TO "taxorder-ksef";` |
+
+Sampler PostgreSQL bierze tylko `state = 'active'`. Pusty wykres Waits przy
+zielonym statusie kolektora zwykle oznacza idle bazę, nie błąd połączenia
+(np. metadata DB sql-monitor — `scripts/monitoring/sql_monitor_dev_workload.sh`).
+
 ## Powiązane
 
 - [roadmap.md](roadmap.md) §3 (Faza 0, element 9)

@@ -86,6 +86,48 @@ def register_instance(
     console.print(f"[bold green]Registered instance:[/bold green] {instance_id}")
 
 
+@monitoring_app.command("register-dev-instances")
+def register_dev_instances_cmd(
+    repair: bool = typer.Option(
+        False,
+        "--repair",
+        help="Update host/credentials for existing dev instances (e.g. fix 127.0.0.1 → db in Docker)",
+    ),
+) -> None:
+    """Register pulse-db-local + sql-monitor-postgres + taxorder-ksef-local (idempotent).
+
+    Run inside the app container so pulse-db-local uses host `db`. After registering
+    from the host with 127.0.0.1, run again with --repair inside Docker.
+
+    sql-monitor-postgres uses host.docker.internal:5433. Grant pg_monitor once:
+
+        docker exec -it <sql-monitor-postgres> psql -U sqlmonitor -d sql_monitor \\
+          -c "GRANT pg_monitor TO sqlmonitor;"
+
+    taxorder-ksef-local uses Docker DNS taxorder-ksef-db-dev:5432 (network
+    taxorder-ksef-dev on app/scheduler). Grant pg_monitor once:
+
+        docker exec -it taxorder-ksef-db-dev psql -U taxorder-ksef -d taxorder-ksef \\
+          -c "GRANT pg_monitor TO \\"taxorder-ksef\\";"
+    """
+    from app.modules.monitoring.dev_instances import register_dev_instances_or_raise
+
+    try:
+        created, skipped, repaired = asyncio.run(register_dev_instances_or_raise(repair=repair))
+    except RuntimeError as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(1) from None
+
+    if created:
+        console.print(f"[bold green]Registered:[/bold green] {', '.join(created)}")
+    if repaired:
+        console.print(f"[bold yellow]Repaired:[/bold yellow] {', '.join(repaired)}")
+    if skipped:
+        console.print(f"[dim]Already registered (skipped):[/dim] {', '.join(skipped)}")
+    if not created and not skipped and not repaired:
+        console.print("[yellow]No instances configured.[/yellow]")
+
+
 @monitoring_app.command("list-instances")
 def list_instances() -> None:
     """List registered monitored instances."""

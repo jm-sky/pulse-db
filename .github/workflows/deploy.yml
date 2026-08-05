@@ -3,10 +3,8 @@ name: Deploy to Production
 permissions:
   contents: read
 
+# Disabled — re-enable by restoring push trigger on main.
 on:
-  push:
-    branches:
-      - main
   workflow_dispatch:
 
 jobs:

@@ -27,6 +27,8 @@ services:
       - LOG_LEVEL=${LOG_LEVEL:-DEBUG}
     ports:
       - "127.0.0.1:${APP_PORT:-8000}:8000"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - ./backend/app:/app/app:rw,delegated
       - ./backend/scripts:/app/scripts:rw,delegated
@@ -44,6 +46,44 @@ services:
         max-file: '3'
     networks:
       - pulse-db-network
+      - taxorder-ksef-dev
+
+  scheduler:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.dev
+    image: pulse-db-backend:dev
+    container_name: pulse-db-scheduler
+    command: ["python", "cli.py", "monitoring", "run-scheduler"]
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    env_file:
+      - ./backend/.env
+    environment:
+      - ENVIRONMENT=${ENVIRONMENT:-development}
+      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-backend}:${POSTGRES_PASSWORD:-changeme}@db:5432/${POSTGRES_DB:-pulse_db}
+      - LOG_LEVEL=${LOG_LEVEL:-DEBUG}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./backend/app:/app/app:rw,delegated
+      - ./backend/migrations:/app/migrations:rw,delegated
+      - ./backend/cli:/app/cli:rw,delegated
+      - ./backend/cli.py:/app/cli.py:rw,delegated
+      - ./backend/pyproject.toml:/app/pyproject.toml:ro,delegated
+      - ./backend/scripts:/app/scripts:rw,delegated
+    logging:
+      driver: 'json-file'
+      options:
+        max-size: '10m'
+        max-file: '3'
+    networks:
+      - pulse-db-network
+      - taxorder-ksef-dev
+    healthcheck:
+      disable: true
 
   frontend:
     build:
@@ -128,6 +168,10 @@ services:
 networks:
   pulse-db-network:
     name: pulse-db-network
+  # Shared with ../../taxorder-ksef — monitoring taxorder-ksef-db-dev (no host port).
+  taxorder-ksef-dev:
+    external: true
+    name: taxorder-ksef-dev
 
 volumes:
   pulse_db_postgres_data:

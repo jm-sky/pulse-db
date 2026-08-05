@@ -29,6 +29,10 @@ _RELEVANT_EXTENSIONS = ("pg_stat_statements", "pg_wait_sampling", "hypopg")
 # documented minimal grant for read-only diagnostics.
 _RELEVANT_ROLES = ("pg_monitor",)
 
+# Tag every monitoring connection so pg_stat_activity can distinguish PulseDB
+# sampler traffic from application workloads (and from other PulseDB ticks).
+_MONITOR_APPLICATION_NAME = "pulse_db_monitor"
+
 
 @dataclass(frozen=True, slots=True)
 class WaitSamplingHistoryRow:
@@ -74,6 +78,7 @@ class PostgresEngineAdapter(EngineAdapter):
             user=params.username,
             password=params.password,
             timeout=params.connect_timeout_seconds,
+            server_settings={"application_name": _MONITOR_APPLICATION_NAME},
         )
 
     async def detect_capabilities(self, params: InstanceConnectionParams) -> EngineCapabilities:

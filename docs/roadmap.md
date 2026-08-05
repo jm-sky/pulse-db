@@ -278,20 +278,21 @@ Największa nierozwiązana luka projektu (§6 vision: *sam AGPLv3 nie generuje a
 | Faza 1, element 6 (porównanie okresów) | ✅ API + testy; walidacja E2E na rollupach — `verification needed`. [plan Fazy 1](plans/2026-07-30-phase1-diagnostic-core.md) |
 | Faza 1, elementy 3–5, 7 | Nie zaczęte |
 | Faza 0a (spike'e, wywiady, PRD) | Nie zaczęte — patrz §2; teza estate mieszanego nadal 🟡 |
-| Desktop UI shell | `in progress` — chrome + mock; [plan](plans/2026-08-04-desktop-ui-shell.md) |
+| Desktop UI shell | `verification needed` — Explorer z API + ECharts Waits na `ash_*`; [plan](plans/2026-08-04-desktop-ui-shell.md) |
+| Dev monitoring targets | `pulse-db-local`, `sql-monitor-postgres`, `taxorder-ksef-local` — `cli monitoring register-dev-instances` / `scripts/monitoring/` |
 
 ### Rekomendacja — w tej kolejności
 
-1. **Walidacja E2E elementu 6** na lokalnym PostgreSQL (self-monitoring) — uruchomić środowisko, sprawdzić endpointy period-comparison na realnych rollupach.
+1. **Manual QA shella Waits** (przełączanie instancji, light/dark, ⌘K) + **walidacja E2E elementu 6** na lokalnych rollupach.
 2. **Faza 1, elementy 3–5** (plany wykonania + detekcja zmiany planu, blokady/deadlocki, analiza indeksów) — kolejność z roadmapy; SQL Server ma gotowe wzorce zapytań w `sql-monitor/collector/queries/`.
 3. **Faza 1, element 7** (baseline sezonowy percentylowy) — wymaga kilku tygodni historii w rollupach.
-4. **Faza 0a** (wywiady z DBA, PRD, ADR biblioteki wykresów) — równolegle; teza produktu wciąż niezweryfikowana rozmowami.
+4. **Faza 0a** (wywiady z DBA, PRD) — równolegle; ADR wykresów: ECharts już w shellu Waits ([research](research/2026-07-30-chart-library.md)).
 
 ### Co NIE jest zalecane teraz
 
 - Automatyczne (nie opt-in) przełączenie na `pg_wait_sampling` jako domyślne źródło — wymaga decyzji o budżecie retencji/wolumenu.
 - Query Store jako zamiennik `dm_exec_query_stats` przed domknięciem elementów 3–6 — capability jest, kształt delty działa na DMV.
-- Pełne UI Waits przed publicznym API (API-first; shell to tylko chrome + mock).
+- Drill-in / Queries UI przed domknięciem API Fazy 1 el. 3–5.
 
 ---
 

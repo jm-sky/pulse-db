@@ -89,6 +89,12 @@ członkostwa instancji, pełny cykl życia `Scheduler.run()`/`stop()`) plus
   istnieje i jest zweryfikowany, ale 7-dniowy przebieg ciągły nie był (i
   nie mógł być) uruchomiony w efemerycznym środowisku tej sesji.
 
+## Lokalny runtime (2026-08-05)
+
+- Serwis Compose `scheduler` + `extra_hosts: host.docker.internal` (sql-monitor na `:5433`).
+- Sieć zewnętrzna `taxorder-ksef-dev` na `app`/`scheduler` (taxorder bez portu na hoście).
+- Skrypty: `scripts/monitoring/run_scheduler.sh`, `register_dev_instances.sh`.
+
 ## Powiązane
 
 - [roadmap.md](../roadmap.md) §3 (Faza 0) — tabela stanu zaktualizowana

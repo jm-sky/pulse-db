@@ -48,6 +48,7 @@ services:
         max-file: '3'
     networks:
       - pulse-db-network
+      - taxorder-ksef-dev
 
   scheduler:
     # Same image as `app`, different command (roadmap Phase 0 element 8):
@@ -70,6 +71,8 @@ services:
       - ENVIRONMENT=${ENVIRONMENT:-production}
       - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-backend}:${POSTGRES_PASSWORD:-changeme}@db:5432/${POSTGRES_DB:-pulse_db}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - ./backend/app:/app/app:rw,delegated
       - ./backend/migrations:/app/migrations:rw,delegated
@@ -83,6 +86,9 @@ services:
         max-file: '3'
     networks:
       - pulse-db-network
+      - taxorder-ksef-dev
+    healthcheck:
+      disable: true
 
   db:
     image: postgres:17-alpine
@@ -137,6 +143,12 @@ services:
 networks:
   pulse-db-network:
     name: pulse-db-network
+  # Shared with ../../taxorder-ksef (docker-compose.dev.yaml). Required for
+  # monitoring taxorder-ksef-db-dev (no published host port). Create/start
+  # taxorder-ksef first, or: docker network create taxorder-ksef-dev
+  taxorder-ksef-dev:
+    external: true
+    name: taxorder-ksef-dev
 
 volumes:
   pulse_db_postgres_data:

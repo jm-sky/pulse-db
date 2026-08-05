@@ -15,6 +15,9 @@ instances (docs/plans/2026-07-30-phase1-diagnostic-core.md).
 
 Phase 1 element 3 adds `collect_query_plans` (execution plans + plan-change
 detection via new `query_plan` rows -- docs/plans/2026-08-05-query-plans.md).
+
+Phase 1 element 4 adds `collect_blocking` / `collect_deadlocks`
+(docs/plans/2026-08-05-blocking-deadlocks.md).
 """
 
 from __future__ import annotations
@@ -143,6 +146,37 @@ class QueryPlanRow:
     plan_body: str
 
 
+@dataclass(frozen=True, slots=True)
+class BlockingRow:
+    """One currently-blocked session in an active lock chain (Phase 1 element 4).
+
+    Snapshot semantics: each collector tick writes one `blocking_event` per
+    blocked session. Query identity is best-effort (nullable keys/text).
+    """
+
+    blocked_engine_query_key: str | None
+    blocking_engine_query_key: str | None
+    blocked_query_text: str | None
+    blocking_query_text: str | None
+    blocked_duration_ms: float | None
+    details: dict
+
+
+@dataclass(frozen=True, slots=True)
+class DeadlockRow:
+    """One deadlock from the engine's history source (Phase 1 element 4).
+
+    SQL Server: ``system_health`` XE ring buffer. PostgreSQL: empty list in
+    MVP (no zero-overhead ring buffer; log parse is out of scope).
+    ``occurred_at`` is on the monitored instance clock -- the collector
+    corrects with ``clock_offset_ms`` before storage (ADR §9).
+    """
+
+    occurred_at: datetime
+    victim_engine_query_key: str | None
+    details: dict
+
+
 class EngineAdapter(ABC):
     """One adapter implementation per supported engine."""
 
@@ -179,4 +213,16 @@ class EngineAdapter(ABC):
         empty plan cache) -- never an error for a missing optional capability.
         Per-query failures (permission denied on EXPLAIN, vanished plan handle)
         skip that row; they must not fail the whole batch.
+        """
+
+    @abstractmethod
+    async def collect_blocking(self, params: InstanceConnectionParams) -> list[BlockingRow]:
+        """Snapshot currently-blocked sessions (Phase 1 element 4). Empty when idle."""
+
+    @abstractmethod
+    async def collect_deadlocks(self, params: InstanceConnectionParams, *, since: datetime | None) -> list[DeadlockRow]:
+        """Drain deadlock history newer than ``since`` (Phase 1 element 4).
+
+        Empty list when the engine has no history source (PostgreSQL MVP) or
+        the ring buffer has no new events -- never an error for missing capability.
         """

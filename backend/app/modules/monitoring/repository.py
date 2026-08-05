@@ -1195,3 +1195,191 @@ async def list_plan_changes(
         )
         for row in result
     ]
+
+
+# --- Phase 1 element 4: blocking + deadlocks --------------------------------
+
+
+@dataclass(frozen=True, slots=True)
+class BlockingEventRecord:
+    id: str
+    instance_id: str
+    detected_at: datetime
+    blocking_query_id: str | None
+    blocked_query_id: str | None
+    blocked_duration_ms: float | None
+    details: dict
+
+
+@dataclass(frozen=True, slots=True)
+class DeadlockEventRecord:
+    id: str
+    instance_id: str
+    detected_at: datetime
+    victim_query_id: str | None
+    details: dict
+
+
+async def insert_blocking_event(
+    session: AsyncSession,
+    *,
+    instance_id: str,
+    detected_at: datetime,
+    blocking_query_id: str | None,
+    blocked_query_id: str | None,
+    blocked_duration_ms: float | None,
+    details: dict,
+) -> str:
+    event_id = generate_id()
+    await session.execute(
+        text("""
+            INSERT INTO blocking_event
+                (id, instance_id, detected_at, blocking_query_id, blocked_query_id,
+                 blocked_duration_ms, details)
+            VALUES
+                (:id, :instance_id, :detected_at, :blocking_query_id, :blocked_query_id,
+                 :blocked_duration_ms, CAST(:details AS jsonb))
+            """),
+        {
+            "id": event_id,
+            "instance_id": instance_id,
+            "detected_at": detected_at,
+            "blocking_query_id": blocking_query_id,
+            "blocked_query_id": blocked_query_id,
+            "blocked_duration_ms": blocked_duration_ms,
+            "details": json.dumps(details),
+        },
+    )
+    return event_id
+
+
+async def insert_deadlock_event(
+    session: AsyncSession,
+    *,
+    instance_id: str,
+    detected_at: datetime,
+    victim_query_id: str | None,
+    details: dict,
+) -> str:
+    event_id = generate_id()
+    await session.execute(
+        text("""
+            INSERT INTO deadlock_event
+                (id, instance_id, detected_at, victim_query_id, details)
+            VALUES
+                (:id, :instance_id, :detected_at, :victim_query_id, CAST(:details AS jsonb))
+            """),
+        {
+            "id": event_id,
+            "instance_id": instance_id,
+            "detected_at": detected_at,
+            "victim_query_id": victim_query_id,
+            "details": json.dumps(details),
+        },
+    )
+    return event_id
+
+
+async def get_deadlock_watermark(session: AsyncSession, *, instance_id: str) -> datetime | None:
+    result = await session.execute(
+        text("SELECT last_event_at FROM deadlock_cursor WHERE instance_id = :instance_id"),
+        {"instance_id": instance_id},
+    )
+    row = result.first()
+    return row.last_event_at if row else None
+
+
+async def set_deadlock_watermark(session: AsyncSession, *, instance_id: str, last_event_at: datetime) -> None:
+    await session.execute(
+        text("""
+            INSERT INTO deadlock_cursor (instance_id, last_event_at, updated_at)
+            VALUES (:instance_id, :last_event_at, now())
+            ON CONFLICT (instance_id) DO UPDATE SET
+                last_event_at = EXCLUDED.last_event_at,
+                updated_at = now()
+            """),
+        {"instance_id": instance_id, "last_event_at": last_event_at},
+    )
+
+
+async def list_blocking_events(
+    session: AsyncSession,
+    *,
+    instance_id: str,
+    since: datetime,
+) -> list[BlockingEventRecord]:
+    result = await session.execute(
+        text("""
+            SELECT id, instance_id, detected_at, blocking_query_id, blocked_query_id,
+                   blocked_duration_ms, details
+            FROM blocking_event
+            WHERE instance_id = :instance_id AND detected_at >= :since
+            ORDER BY detected_at DESC
+            """),
+        {"instance_id": instance_id, "since": since},
+    )
+    return [
+        BlockingEventRecord(
+            id=row.id,
+            instance_id=row.instance_id,
+            detected_at=row.detected_at,
+            blocking_query_id=row.blocking_query_id,
+            blocked_query_id=row.blocked_query_id,
+            blocked_duration_ms=row.blocked_duration_ms,
+            details=dict(row.details) if row.details else {},
+        )
+        for row in result
+    ]
+
+
+async def list_deadlock_events(
+    session: AsyncSession,
+    *,
+    instance_id: str,
+    since: datetime,
+) -> list[DeadlockEventRecord]:
+    result = await session.execute(
+        text("""
+            SELECT id, instance_id, detected_at, victim_query_id, details
+            FROM deadlock_event
+            WHERE instance_id = :instance_id AND detected_at >= :since
+            ORDER BY detected_at DESC
+            """),
+        {"instance_id": instance_id, "since": since},
+    )
+    return [
+        DeadlockEventRecord(
+            id=row.id,
+            instance_id=row.instance_id,
+            detected_at=row.detected_at,
+            victim_query_id=row.victim_query_id,
+            details=dict(row.details) if row.details else {},
+        )
+        for row in result
+    ]
+
+
+async def get_deadlock_event(
+    session: AsyncSession,
+    *,
+    instance_id: str,
+    event_id: str,
+) -> DeadlockEventRecord | None:
+    result = await session.execute(
+        text("""
+            SELECT id, instance_id, detected_at, victim_query_id, details
+            FROM deadlock_event
+            WHERE id = :event_id AND instance_id = :instance_id
+            """),
+        {"event_id": event_id, "instance_id": instance_id},
+    )
+    row = result.first()
+    if row is None:
+        return None
+    return DeadlockEventRecord(
+        id=row.id,
+        instance_id=row.instance_id,
+        detected_at=row.detected_at,
+        victim_query_id=row.victim_query_id,
+        details=dict(row.details) if row.details else {},
+    )

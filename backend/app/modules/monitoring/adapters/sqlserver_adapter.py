@@ -23,6 +23,8 @@ import pytds
 
 from ..engine_adapter import (
     ActiveSessionRow,
+    BlockingRow,
+    DeadlockRow,
     Engine,
     EngineAdapter,
     EngineCapabilities,
@@ -131,6 +133,67 @@ WHERE qs.execution_count > 0
 ORDER BY qs.total_elapsed_time DESC
 """
 
+# Active blocking chains: one row per blocked request (sql-monitor SQL_BLOCKING shape).
+_BLOCKING_SQL = """
+SELECT
+    r.session_id AS blocked_session_id,
+    r.blocking_session_id AS blocking_session_id,
+    r.wait_type AS wait_type,
+    r.wait_time AS wait_time_ms,
+    COALESCE(bs.login_name, N'') AS blocked_user,
+    COALESCE(ks.login_name, N'') AS blocking_user,
+    COALESCE(bs.program_name, N'') AS blocked_application,
+    COALESCE(ks.program_name, N'') AS blocking_application,
+    COALESCE(bs.host_name, N'') AS blocked_client_host,
+    COALESCE(ks.host_name, N'') AS blocking_client_host,
+    SUBSTRING(
+        bst.text,
+        (r.statement_start_offset / 2) + 1,
+        (
+            (CASE r.statement_end_offset
+                WHEN -1 THEN DATALENGTH(bst.text)
+                ELSE r.statement_end_offset
+             END - r.statement_start_offset) / 2
+        ) + 1
+    ) AS blocked_query_text,
+    kst.text AS blocking_query_text,
+    CONVERT(VARCHAR(34), r.query_hash, 1) AS blocked_engine_query_key,
+    CONVERT(VARCHAR(34), kr.query_hash, 1) AS blocking_engine_query_key
+FROM sys.dm_exec_requests AS r WITH (NOLOCK)
+JOIN sys.dm_exec_sessions AS bs WITH (NOLOCK) ON bs.session_id = r.session_id
+LEFT JOIN sys.dm_exec_sessions AS ks WITH (NOLOCK) ON ks.session_id = r.blocking_session_id
+LEFT JOIN sys.dm_exec_requests AS kr WITH (NOLOCK) ON kr.session_id = r.blocking_session_id
+OUTER APPLY sys.dm_exec_sql_text(r.sql_handle) AS bst
+OUTER APPLY sys.dm_exec_sql_text(COALESCE(kr.sql_handle, ks.most_recent_sql_handle)) AS kst
+WHERE r.blocking_session_id > 0
+  AND r.session_id <> @@SPID
+  AND bs.is_user_process = 1
+ORDER BY r.wait_time DESC
+"""
+
+# Deadlocks from system_health XE ring buffer (zero overhead -- session always on).
+_DEADLOCKS_SQL = """
+SELECT
+    xdr.value('@timestamp', 'datetime2') AS event_time,
+    CONVERT(nvarchar(max),
+        xdr.query('data[@name="xml_report"]/value/deadlock')
+    ) AS deadlock_xml,
+    TRY_CAST(
+        xdr.value('(data[@name="xml_report"]/value/deadlock/victim-list/victimProcess/@id)[1]', 'nvarchar(50)')
+        AS nvarchar(50)
+    ) AS victim_process_id
+FROM (
+    SELECT CAST(target_data AS XML) AS target_data
+    FROM sys.dm_xe_session_targets t WITH (NOLOCK)
+    JOIN sys.dm_xe_sessions s WITH (NOLOCK) ON s.address = t.event_session_address
+    WHERE s.name = N'system_health'
+      AND t.target_name = N'ring_buffer'
+) AS data
+CROSS APPLY target_data.nodes('//RingBufferTarget/event[@name="xml_deadlock_report"]') AS XEventData(xdr)
+WHERE xdr.value('@timestamp', 'datetime2') > %s
+ORDER BY event_time
+"""
+
 
 def _connect(params: InstanceConnectionParams) -> pytds.Connection:
     return pytds.connect(
@@ -172,7 +235,14 @@ def _detect_capabilities_sync(params: InstanceConnectionParams) -> EngineCapabil
         cur.execute("SELECT actual_state_desc FROM sys.database_query_store_options")
         row = cur.fetchone()
         query_store_enabled = bool(row) and str(row[0]).upper() != "OFF"
-        features = {"query_store": query_store_enabled}
+
+        cur.execute("""
+            SELECT COUNT(*)
+            FROM sys.dm_xe_sessions WITH (NOLOCK)
+            WHERE name = N'system_health'
+            """)
+        system_health = int(cur.fetchone()[0]) > 0
+        features = {"query_store": query_store_enabled, "deadlock_history": system_health}
 
         grants: dict[str, bool] = {}
         for securable_class, permission in _RELEVANT_PERMISSIONS:
@@ -331,6 +401,90 @@ def _collect_query_plans_sync(params: InstanceConnectionParams, *, top_n: int = 
     return result
 
 
+def _normalize_ss_query_key(value: object) -> str | None:
+    if value is None:
+        return None
+    key = str(value)
+    if not key or key.upper() == "NULL":
+        return None
+    return key
+
+
+def _strip_nul(value: object) -> str | None:
+    if value is None:
+        return None
+    text = str(value).replace("\x00", "")
+    return text if text else None
+
+
+def _collect_blocking_sync(params: InstanceConnectionParams) -> list[BlockingRow]:
+    """Active blocking chains from ``dm_exec_requests`` (Phase 1 element 4)."""
+    with _connect(params) as conn, conn.cursor() as cur:
+        cur.execute(_BLOCKING_SQL)
+        rows = _fetch_dicts(cur)
+
+    result: list[BlockingRow] = []
+    for row in rows:
+        wait_ms = row.get("wait_time_ms")
+        result.append(
+            BlockingRow(
+                blocked_engine_query_key=_normalize_ss_query_key(row.get("blocked_engine_query_key")),
+                blocking_engine_query_key=_normalize_ss_query_key(row.get("blocking_engine_query_key")),
+                blocked_query_text=_strip_nul(row.get("blocked_query_text")),
+                blocking_query_text=_strip_nul(row.get("blocking_query_text")),
+                blocked_duration_ms=float(wait_ms) if wait_ms is not None else None,
+                details={
+                    "blocked_session_id": int(row["blocked_session_id"]),
+                    "blocking_session_id": int(row["blocking_session_id"]),
+                    "wait_type": str(row["wait_type"]) if row.get("wait_type") is not None else None,
+                    "blocked_user": str(row.get("blocked_user") or ""),
+                    "blocking_user": str(row.get("blocking_user") or ""),
+                    "blocked_application": str(row.get("blocked_application") or ""),
+                    "blocking_application": str(row.get("blocking_application") or ""),
+                    "blocked_client_host": str(row.get("blocked_client_host") or ""),
+                    "blocking_client_host": str(row.get("blocking_client_host") or ""),
+                },
+            )
+        )
+    return result
+
+
+def _collect_deadlocks_sync(params: InstanceConnectionParams, *, since: datetime | None) -> list[DeadlockRow]:
+    """Deadlock XML from ``system_health`` ring buffer newer than ``since``."""
+    # Far-past default when no watermark yet (matches sql-monitor ~25h lookback intent,
+    # but we use epoch so a first run still drains whatever the ring still holds).
+    since_ts = since if since is not None else datetime(2000, 1, 1)
+    try:
+        with _connect(params) as conn, conn.cursor() as cur:
+            cur.execute(_DEADLOCKS_SQL, (since_ts,))
+            rows = _fetch_dicts(cur)
+    except Exception:
+        # Missing VIEW SERVER STATE / ring buffer unavailable -- capability
+        # already reports deadlock_history; empty list keeps the tick healthy.
+        return []
+
+    result: list[DeadlockRow] = []
+    for row in rows:
+        event_time = row.get("event_time")
+        if event_time is None:
+            continue
+        if not isinstance(event_time, datetime):
+            continue
+        xml = _strip_nul(row.get("deadlock_xml"))
+        victim = row.get("victim_process_id")
+        result.append(
+            DeadlockRow(
+                occurred_at=event_time,
+                victim_engine_query_key=None,
+                details={
+                    "xml": xml,
+                    "victim_process_id": str(victim) if victim is not None else None,
+                },
+            )
+        )
+    return result
+
+
 class SqlServerEngineAdapter(EngineAdapter):
     engine = Engine.SQLSERVER
 
@@ -349,6 +503,12 @@ class SqlServerEngineAdapter(EngineAdapter):
     async def collect_query_plans(self, params: InstanceConnectionParams, *, top_n: int = 20) -> list[QueryPlanRow]:
         return await asyncio.to_thread(_collect_query_plans_sync, params, top_n=top_n)
 
+    async def collect_blocking(self, params: InstanceConnectionParams) -> list[BlockingRow]:
+        return await asyncio.to_thread(_collect_blocking_sync, params)
+
+    async def collect_deadlocks(self, params: InstanceConnectionParams, *, since: datetime | None) -> list[DeadlockRow]:
+        return await asyncio.to_thread(_collect_deadlocks_sync, params, since=since)
+
 
 # Re-exported for tests that need to patch the sync entry points without
 # reaching into module-private names.
@@ -359,4 +519,6 @@ __all__ = [
     "_collect_active_sessions_sync",
     "_collect_query_stats_sync",
     "_collect_query_plans_sync",
+    "_collect_blocking_sync",
+    "_collect_deadlocks_sync",
 ]

@@ -22,6 +22,10 @@ docstring for why (volume, not just an easy quality upgrade).
 
 `run_query_plans_collection` is Phase 1 element 3 (docs/plans/2026-08-05-query-plans.md):
 top-N execution plans into `plan_text`/`query_plan` on a 10-minute cadence.
+
+`run_blocking_collection` / `run_deadlocks_collection` are Phase 1 element 4
+(docs/plans/2026-08-05-blocking-deadlocks.md): active lock chains and
+SQL Server system_health deadlock history.
 """
 
 from __future__ import annotations
@@ -651,6 +655,223 @@ async def run_query_plans_collection(
         overhead_ms=overhead_ms,
         plans_seen=plans_seen,
         plans_new=plans_new,
+        gap_detected=gap_detected,
+        gap_seconds=gap_seconds,
+        error_message=error_message,
+    )
+
+
+def _resolve_query_id_best_effort(
+    *,
+    engine_query_key: str | None,
+    query_text: str | None,
+) -> tuple[str | None, str | None]:
+    """Return (engine_query_key_for_upsert, normalized_text) or (None, None)."""
+    if engine_query_key and query_text:
+        return engine_query_key, repository.normalize_query_text(query_text)
+    if engine_query_key and not query_text:
+        return engine_query_key, f"-- pulse_db:no_text:{engine_query_key}"
+    if query_text and not engine_query_key:
+        normalized = repository.normalize_query_text(query_text)
+        return repository.compute_norm_hash(normalized), normalized
+    return None, None
+
+
+@dataclass(frozen=True, slots=True)
+class BlockingCollectionResult:
+    run_id: str
+    status: str
+    overhead_ms: float
+    events_written: int | None
+    gap_detected: bool
+    gap_seconds: float | None
+    error_message: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class DeadlocksCollectionResult:
+    run_id: str
+    status: str
+    overhead_ms: float
+    events_written: int | None
+    gap_detected: bool
+    gap_seconds: float | None
+    error_message: str | None
+
+
+async def run_blocking_collection(instance_id: str, *, interval_ms: int = 30_000) -> BlockingCollectionResult:
+    """One blocking tick (Phase 1 element 4): active lock chains -> blocking_event."""
+    async with AsyncSessionLocal() as session:
+        params = await repository.get_connection_params(session, instance_id)
+        last_finished_at, _ = await repository.get_last_collector_run(session, instance_id, kind="blocking")
+
+        started_at = datetime.now(UTC)
+        gap_detected, gap_seconds = _detect_gap(started_at=started_at, last_finished_at=last_finished_at, interval_ms=interval_ms)
+
+        clock_start = time.perf_counter()
+        status = "ok"
+        error_message: str | None = None
+        events_written: int | None = None
+
+        try:
+            rows = await _adapter_for(params.engine).collect_blocking(params)
+            events_written = 0
+            for row in rows:
+                blocked_key, blocked_text = _resolve_query_id_best_effort(
+                    engine_query_key=row.blocked_engine_query_key,
+                    query_text=row.blocked_query_text,
+                )
+                blocking_key, blocking_text = _resolve_query_id_best_effort(
+                    engine_query_key=row.blocking_engine_query_key,
+                    query_text=row.blocking_query_text,
+                )
+                blocked_query_id = None
+                blocking_query_id = None
+                if blocked_key and blocked_text:
+                    blocked_query_id = await repository.upsert_query(
+                        session,
+                        instance_id=instance_id,
+                        engine=params.engine,
+                        engine_query_key=blocked_key,
+                        normalized_text=blocked_text,
+                    )
+                if blocking_key and blocking_text:
+                    blocking_query_id = await repository.upsert_query(
+                        session,
+                        instance_id=instance_id,
+                        engine=params.engine,
+                        engine_query_key=blocking_key,
+                        normalized_text=blocking_text,
+                    )
+                await repository.insert_blocking_event(
+                    session,
+                    instance_id=instance_id,
+                    detected_at=started_at,
+                    blocking_query_id=blocking_query_id,
+                    blocked_query_id=blocked_query_id,
+                    blocked_duration_ms=row.blocked_duration_ms,
+                    details=row.details,
+                )
+                events_written += 1
+        except Exception as exc:
+            status = "error"
+            error_message = str(exc)
+            await session.rollback()
+
+        overhead_ms = (time.perf_counter() - clock_start) * 1000
+        finished_at = datetime.now(UTC)
+
+        run_id = await repository.insert_collector_run(
+            session,
+            instance_id=instance_id,
+            kind="blocking",
+            started_at=started_at,
+            finished_at=finished_at,
+            status=status,
+            interval_ms=interval_ms,
+            overhead_ms=overhead_ms,
+            clock_offset_ms=None,
+            gap_detected=gap_detected,
+            gap_seconds=gap_seconds,
+            error_message=error_message,
+        )
+        await session.commit()
+
+    return BlockingCollectionResult(
+        run_id=run_id,
+        status=status,
+        overhead_ms=overhead_ms,
+        events_written=events_written,
+        gap_detected=gap_detected,
+        gap_seconds=gap_seconds,
+        error_message=error_message,
+    )
+
+
+async def run_deadlocks_collection(instance_id: str, *, interval_ms: int = 60_000) -> DeadlocksCollectionResult:
+    """One deadlocks tick (Phase 1 element 4): system_health drain -> deadlock_event."""
+    async with AsyncSessionLocal() as session:
+        params = await repository.get_connection_params(session, instance_id)
+        last_finished_at, _ = await repository.get_last_collector_run(session, instance_id, kind="deadlocks")
+        watermark = await repository.get_deadlock_watermark(session, instance_id=instance_id)
+
+        started_at = datetime.now(UTC)
+        gap_detected, gap_seconds = _detect_gap(started_at=started_at, last_finished_at=last_finished_at, interval_ms=interval_ms)
+
+        clock_start = time.perf_counter()
+        status = "ok"
+        error_message: str | None = None
+        events_written: int | None = None
+
+        try:
+            clock_offset_ms = await repository.get_latest_clock_offset_ms(session, instance_id=instance_id)
+            rows = await _adapter_for(params.engine).collect_deadlocks(params, since=watermark)
+            events_written = 0
+            max_occurred: datetime | None = watermark
+
+            for row in rows:
+                detected_at = row.occurred_at
+                if clock_offset_ms is not None:
+                    detected_at = row.occurred_at + timedelta(milliseconds=clock_offset_ms)
+                if detected_at.tzinfo is None:
+                    detected_at = detected_at.replace(tzinfo=UTC)
+
+                victim_query_id = None
+                victim_key, victim_text = _resolve_query_id_best_effort(
+                    engine_query_key=row.victim_engine_query_key,
+                    query_text=None,
+                )
+                if victim_key and victim_text:
+                    victim_query_id = await repository.upsert_query(
+                        session,
+                        instance_id=instance_id,
+                        engine=params.engine,
+                        engine_query_key=victim_key,
+                        normalized_text=victim_text,
+                    )
+
+                await repository.insert_deadlock_event(
+                    session,
+                    instance_id=instance_id,
+                    detected_at=detected_at,
+                    victim_query_id=victim_query_id,
+                    details=row.details,
+                )
+                events_written += 1
+                if max_occurred is None or row.occurred_at > max_occurred:
+                    max_occurred = row.occurred_at
+
+            if max_occurred is not None and (watermark is None or max_occurred > watermark):
+                await repository.set_deadlock_watermark(session, instance_id=instance_id, last_event_at=max_occurred)
+        except Exception as exc:
+            status = "error"
+            error_message = str(exc)
+            await session.rollback()
+
+        overhead_ms = (time.perf_counter() - clock_start) * 1000
+        finished_at = datetime.now(UTC)
+
+        run_id = await repository.insert_collector_run(
+            session,
+            instance_id=instance_id,
+            kind="deadlocks",
+            started_at=started_at,
+            finished_at=finished_at,
+            status=status,
+            interval_ms=interval_ms,
+            overhead_ms=overhead_ms,
+            clock_offset_ms=None,
+            gap_detected=gap_detected,
+            gap_seconds=gap_seconds,
+            error_message=error_message,
+        )
+        await session.commit()
+
+    return DeadlocksCollectionResult(
+        run_id=run_id,
+        status=status,
+        overhead_ms=overhead_ms,
+        events_written=events_written,
         gap_detected=gap_detected,
         gap_seconds=gap_seconds,
         error_message=error_message,

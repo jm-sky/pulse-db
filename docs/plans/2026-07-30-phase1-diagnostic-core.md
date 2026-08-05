@@ -159,13 +159,14 @@ lokalnym PostgreSQL 16** — `verification needed` (wymaga uruchomionego
 
 ## Co zostaje
 
-- **Elementy 4–5, 7 Fazy 1** (blokady/deadlocki jako
-  zdarzenia, indeksy, baseline sezonowy percentylowy) — nie zaczęte.
-- **Element 3 (plany)** — ✅ zaimplementowane; szczegóły:
-  [2026-08-05-query-plans.md](2026-08-05-query-plans.md).
+- **Elementy 5, 7 Fazy 1** (analiza indeksów, baseline sezonowy percentylowy) — nie zaczęte.
+- **Element 3 (plany)** — ✅ [2026-08-05-query-plans.md](2026-08-05-query-plans.md).
+- **Element 4 (blokady/deadlocki)** — ✅ [2026-08-05-blocking-deadlocks.md](2026-08-05-blocking-deadlocks.md).
 - **Query Store jako źródło historii poza plan cache** — capability
   wykrywane, kolektor nadal na `dm_exec_query_stats` (jak
   `pg_stat_statements`). Osobna decyzja / iteracja.
+- **Historia deadlocków PostgreSQL** — jawny brak w MVP (brak ring-buffera);
+  ewentualny parse logów poza zakresem.
 - **Automatyczne przełączanie na `pg_wait_sampling`** gdy obecne — dziś
   celowo opt-in (osobna komenda), nie domyślne zachowanie
   `sample-sessions`, z powodów wolumenu opisanych wyżej. Ewentualne

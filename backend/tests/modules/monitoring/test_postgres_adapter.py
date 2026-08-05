@@ -39,7 +39,12 @@ async def test_detect_capabilities_reports_installed_extensions_and_grants() -> 
 
     assert capabilities.engine is Engine.POSTGRESQL
     assert capabilities.version == "17.0"
-    assert capabilities.features == {"pg_stat_statements": True, "pg_wait_sampling": False, "hypopg": False}
+    assert capabilities.features == {
+        "pg_stat_statements": True,
+        "pg_wait_sampling": False,
+        "hypopg": False,
+        "deadlock_history": False,
+    }
     assert capabilities.grants == {"pg_monitor": True, "superuser": True}
     conn.close.assert_awaited_once()
 

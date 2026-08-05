@@ -16,8 +16,9 @@ Design:
   are independent -- a 1s session-sample loop and a 60s query-stats loop for
   the same instance run concurrently, not interleaved on a shared clock.
 - Both engines get the full diagnostic tick set (session sample, query
-  stats, query plans, rollups) once Phase 1 elements 1–3 are implemented
-  for each; `trivial` remains the shared health-check tick.
+  stats, query plans, blocking, deadlocks, rollups) once Phase 1
+  elements 1–4 are implemented for each; `trivial` remains the shared
+  health-check tick.
 - Instance membership is polled (not push-based) every
   `instance_refresh_interval_seconds` (default 5 min) -- newly registered or
   deactivated instances are picked up/torn down without restarting the
@@ -44,6 +45,8 @@ from typing import Any
 
 from . import repository
 from .collector import (
+    run_blocking_collection,
+    run_deadlocks_collection,
     run_query_plans_collection,
     run_query_stats_collection,
     run_session_sample_collection,
@@ -73,6 +76,8 @@ _DIAGNOSTIC_TICKS: tuple[TickSpec, ...] = (
     TickSpec("session_sample", 1.0, functools.partial(run_session_sample_collection, interval_ms=1_000)),
     TickSpec("query_stats", 60.0, functools.partial(run_query_stats_collection, interval_ms=60_000)),
     TickSpec("query_plans", 600.0, functools.partial(run_query_plans_collection, interval_ms=600_000)),
+    TickSpec("blocking", 30.0, functools.partial(run_blocking_collection, interval_ms=30_000)),
+    TickSpec("deadlocks", 60.0, functools.partial(run_deadlocks_collection, interval_ms=60_000)),
     TickSpec("rollup_ash_1m", 60.0, run_ash_1m_rollup),
     TickSpec("rollup_ash_1h", 300.0, run_ash_1h_rollup),
     TickSpec("rollup_query_stat_1h", 300.0, run_query_stat_1h_rollup),

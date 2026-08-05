@@ -74,12 +74,14 @@ def _capabilities_script(
     *,
     version: str = "16.0.1000.6",
     query_store_state: str = "READ_WRITE",
+    system_health_count: int = 1,
     server_perms: list[tuple[str, ...]] | None = None,
     database_perms: list[tuple[str, ...]] | None = None,
 ) -> list[tuple[str, object]]:
     return [
         ("one", (version,)),
         ("one", (query_store_state,)),
+        ("one", (system_health_count,)),
         ("all", server_perms if server_perms is not None else [("VIEW SERVER STATE",)]),
         ("all", database_perms if database_perms is not None else [("VIEW DATABASE STATE",)]),
     ]
@@ -94,18 +96,18 @@ async def test_detect_capabilities_reports_query_store_and_grants() -> None:
 
     assert capabilities.engine is Engine.SQLSERVER
     assert capabilities.version == "16.0.1000.6"
-    assert capabilities.features == {"query_store": True}
+    assert capabilities.features == {"query_store": True, "deadlock_history": True}
     assert capabilities.grants == {"VIEW SERVER STATE": True, "VIEW DATABASE STATE": True}
 
 
 @pytest.mark.asyncio
 async def test_detect_capabilities_query_store_off() -> None:
-    fake_conn = _FakeConnection(_capabilities_script(query_store_state="OFF", server_perms=[], database_perms=[]))
+    fake_conn = _FakeConnection(_capabilities_script(query_store_state="OFF", system_health_count=0, server_perms=[], database_perms=[]))
 
     with patch("app.modules.monitoring.adapters.sqlserver_adapter.pytds.connect", MagicMock(return_value=fake_conn)):
         capabilities = await SqlServerEngineAdapter().detect_capabilities(PARAMS)
 
-    assert capabilities.features == {"query_store": False}
+    assert capabilities.features == {"query_store": False, "deadlock_history": False}
     assert capabilities.grants == {"VIEW SERVER STATE": False, "VIEW DATABASE STATE": False}
 
 

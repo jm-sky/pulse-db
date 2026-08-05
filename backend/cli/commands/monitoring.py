@@ -239,6 +239,47 @@ def collect_query_plans(
         console.print(f"[yellow]Gap detected:[/yellow] {result.gap_seconds:.1f}s since expected previous run")
 
 
+@monitoring_app.command("collect-blocking")
+def collect_blocking(
+    instance_id: str = typer.Argument(..., help="Instance ID from list-instances"),
+    interval_ms: int = typer.Option(30_000, "--interval-ms", help="Expected cadence, used for gap detection"),
+) -> None:
+    """Run one tick: snapshot active lock chains into blocking_event (Phase 1 element 4)."""
+    from app.modules.monitoring.collector import run_blocking_collection
+
+    result = asyncio.run(run_blocking_collection(instance_id, interval_ms=interval_ms))
+
+    if result.status == "ok":
+        console.print(f"[bold green]OK[/bold green] events_written={result.events_written} overhead_ms={result.overhead_ms:.2f}")
+    else:
+        console.print(f"[bold red]ERROR[/bold red] {result.error_message}")
+
+    if result.gap_detected:
+        console.print(f"[yellow]Gap detected:[/yellow] {result.gap_seconds:.1f}s since expected previous run")
+
+
+@monitoring_app.command("collect-deadlocks")
+def collect_deadlocks(
+    instance_id: str = typer.Argument(..., help="Instance ID from list-instances"),
+    interval_ms: int = typer.Option(60_000, "--interval-ms", help="Expected cadence, used for gap detection"),
+) -> None:
+    """Run one tick: drain deadlock history into deadlock_event (Phase 1 element 4).
+
+    SQL Server: system_health XE ring buffer. PostgreSQL: no-op (empty) in MVP.
+    """
+    from app.modules.monitoring.collector import run_deadlocks_collection
+
+    result = asyncio.run(run_deadlocks_collection(instance_id, interval_ms=interval_ms))
+
+    if result.status == "ok":
+        console.print(f"[bold green]OK[/bold green] events_written={result.events_written} overhead_ms={result.overhead_ms:.2f}")
+    else:
+        console.print(f"[bold red]ERROR[/bold red] {result.error_message}")
+
+    if result.gap_detected:
+        console.print(f"[yellow]Gap detected:[/yellow] {result.gap_seconds:.1f}s since expected previous run")
+
+
 @monitoring_app.command("sample-wait-history")
 def sample_wait_history(
     instance_id: str = typer.Argument(..., help="Instance ID from list-instances"),

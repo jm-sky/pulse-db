@@ -17,6 +17,7 @@ Plany implementacji funkcji i większych zmian.
 | [2026-07-31-scheduler.md](2026-07-31-scheduler.md) | Faza 0 element 8: harmonogram kolektora i rollupów (`cli monitoring run-scheduler` + serwis Docker Compose) | `done` |
 | [2026-08-04-desktop-ui-shell.md](2026-08-04-desktop-ui-shell.md) | Wczesny slice Fazy 2: DesktopWorkspaceLayout + Explorer z API + ECharts Waits | `verification needed` |
 | [2026-08-05-query-plans.md](2026-08-05-query-plans.md) | Faza 1 element 3: plany wykonania + detekcja zmiany (PG EXPLAIN + SS dm_exec_query_plan) | `in progress` |
+| [2026-08-05-blocking-deadlocks.md](2026-08-05-blocking-deadlocks.md) | Faza 1 element 4: blocking (PG+SS) + deadlocki system_health (SS) | `in progress` |
 
 When adding a new plan: create `YYYY-MM-DD-slug.md`, add a row here.
 

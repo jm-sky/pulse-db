@@ -70,6 +70,8 @@ COMMAND_GROUPS = {
             "sample-sessions": "Run one ASH tick: active sessions with wait attribution (PostgreSQL)",
             "collect-query-stats": "Run one tick: pg_stat_statements deltas into query_stat_delta (PostgreSQL)",
             "collect-query-plans": "Run one tick: top-N execution plans into plan_text/query_plan",
+            "collect-blocking": "Run one tick: active lock chains into blocking_event",
+            "collect-deadlocks": "Run one tick: deadlock history into deadlock_event",
             "sample-wait-history": "Richer-source ASH tick from pg_wait_sampling_history, opt-in (PostgreSQL)",
             "partitions-maintain": "Create upcoming partitions, drop expired ones",
             "rollup-ash-1m": "Roll closed 1-minute session_sample buckets into ash_1m",

@@ -17,6 +17,8 @@ import asyncpg
 
 from ..engine_adapter import (
     ActiveSessionRow,
+    BlockingRow,
+    DeadlockRow,
     Engine,
     EngineAdapter,
     EngineCapabilities,
@@ -41,6 +43,86 @@ _RELEVANT_ROLES = ("pg_monitor",)
 # Tag every monitoring connection so pg_stat_activity can distinguish PulseDB
 # sampler traffic from application workloads (and from other PulseDB ticks).
 _MONITOR_APPLICATION_NAME = "pulse_db_monitor"
+
+_PG_BLOCKING_SQL = """
+SELECT DISTINCT ON (blocked.pid, blocking.pid)
+    blocked.pid AS blocked_pid,
+    blocking.pid AS blocking_pid,
+    blocked.wait_event_type,
+    blocked.wait_event,
+    bl.locktype,
+    EXTRACT(EPOCH FROM (now() - blocked.state_change)) * 1000 AS blocked_duration_ms,
+    COALESCE(blocked.usename, '') AS blocked_user,
+    COALESCE(blocking.usename, '') AS blocking_user,
+    COALESCE(blocked.application_name, '') AS blocked_application,
+    COALESCE(blocking.application_name, '') AS blocking_application,
+    COALESCE(host(blocked.client_addr), '') AS blocked_client_host,
+    COALESCE(host(blocking.client_addr), '') AS blocking_client_host,
+    blocked.query AS blocked_query_text,
+    blocking.query AS blocking_query_text,
+    NULLIF(blocked.query_id, 0)::text AS blocked_engine_query_key,
+    NULLIF(blocking.query_id, 0)::text AS blocking_engine_query_key
+FROM pg_locks bl
+JOIN pg_stat_activity blocked ON blocked.pid = bl.pid
+JOIN pg_locks bk
+    ON bk.locktype = bl.locktype
+    AND bk.database IS NOT DISTINCT FROM bl.database
+    AND bk.relation IS NOT DISTINCT FROM bl.relation
+    AND bk.page IS NOT DISTINCT FROM bl.page
+    AND bk.tuple IS NOT DISTINCT FROM bl.tuple
+    AND bk.virtualxid IS NOT DISTINCT FROM bl.virtualxid
+    AND bk.transactionid IS NOT DISTINCT FROM bl.transactionid
+    AND bk.classid IS NOT DISTINCT FROM bl.classid
+    AND bk.objid IS NOT DISTINCT FROM bl.objid
+    AND bk.objsubid IS NOT DISTINCT FROM bl.objsubid
+    AND bk.pid <> bl.pid
+JOIN pg_stat_activity blocking ON blocking.pid = bk.pid
+WHERE NOT bl.granted
+  AND bk.granted
+  AND blocked.pid <> pg_backend_pid()
+  AND blocking.pid <> pg_backend_pid()
+ORDER BY blocked.pid, blocking.pid, blocked_duration_ms DESC NULLS LAST
+"""
+
+_PG_BLOCKING_SQL_NO_QUERY_ID = """
+SELECT DISTINCT ON (blocked.pid, blocking.pid)
+    blocked.pid AS blocked_pid,
+    blocking.pid AS blocking_pid,
+    blocked.wait_event_type,
+    blocked.wait_event,
+    bl.locktype,
+    EXTRACT(EPOCH FROM (now() - blocked.state_change)) * 1000 AS blocked_duration_ms,
+    COALESCE(blocked.usename, '') AS blocked_user,
+    COALESCE(blocking.usename, '') AS blocking_user,
+    COALESCE(blocked.application_name, '') AS blocked_application,
+    COALESCE(blocking.application_name, '') AS blocking_application,
+    COALESCE(host(blocked.client_addr), '') AS blocked_client_host,
+    COALESCE(host(blocking.client_addr), '') AS blocking_client_host,
+    blocked.query AS blocked_query_text,
+    blocking.query AS blocking_query_text,
+    NULL::text AS blocked_engine_query_key,
+    NULL::text AS blocking_engine_query_key
+FROM pg_locks bl
+JOIN pg_stat_activity blocked ON blocked.pid = bl.pid
+JOIN pg_locks bk
+    ON bk.locktype = bl.locktype
+    AND bk.database IS NOT DISTINCT FROM bl.database
+    AND bk.relation IS NOT DISTINCT FROM bl.relation
+    AND bk.page IS NOT DISTINCT FROM bl.page
+    AND bk.tuple IS NOT DISTINCT FROM bl.tuple
+    AND bk.virtualxid IS NOT DISTINCT FROM bl.virtualxid
+    AND bk.transactionid IS NOT DISTINCT FROM bl.transactionid
+    AND bk.classid IS NOT DISTINCT FROM bl.classid
+    AND bk.objid IS NOT DISTINCT FROM bl.objid
+    AND bk.objsubid IS NOT DISTINCT FROM bl.objsubid
+    AND bk.pid <> bl.pid
+JOIN pg_stat_activity blocking ON blocking.pid = bk.pid
+WHERE NOT bl.granted
+  AND bk.granted
+  AND blocked.pid <> pg_backend_pid()
+  AND blocking.pid <> pg_backend_pid()
+ORDER BY blocked.pid, blocking.pid, blocked_duration_ms DESC NULLS LAST
+"""
 
 
 @dataclass(frozen=True, slots=True)
@@ -97,6 +179,9 @@ class PostgresEngineAdapter(EngineAdapter):
 
             installed = {row["extname"] for row in await conn.fetch("SELECT extname FROM pg_extension WHERE extname = ANY($1::text[])", list(_RELEVANT_EXTENSIONS))}
             features = {ext: ext in installed for ext in _RELEVANT_EXTENSIONS}
+            # No zero-overhead deadlock ring buffer on PostgreSQL (Phase 1
+            # element 4) -- history requires log parse, out of MVP scope.
+            features["deadlock_history"] = False
 
             grants = {role: bool(await conn.fetchval("SELECT pg_has_role(current_user, $1, 'MEMBER')", role)) for role in _RELEVANT_ROLES}
             # Superuser bypasses role checks and already has everything pg_monitor grants.
@@ -256,6 +341,49 @@ class PostgresEngineAdapter(EngineAdapter):
             return results
         finally:
             await conn.close()
+
+    async def collect_blocking(self, params: InstanceConnectionParams) -> list[BlockingRow]:
+        """Active lock chains via ``pg_locks`` × ``pg_stat_activity``."""
+        conn = await self._connect(params)
+        try:
+            try:
+                rows = await conn.fetch(_PG_BLOCKING_SQL)
+            except asyncpg.exceptions.UndefinedColumnError:
+                # Pre-PG14 without query_id column
+                rows = await conn.fetch(_PG_BLOCKING_SQL_NO_QUERY_ID)
+
+            results: list[BlockingRow] = []
+            for row in rows:
+                results.append(
+                    BlockingRow(
+                        blocked_engine_query_key=row["blocked_engine_query_key"],
+                        blocking_engine_query_key=row["blocking_engine_query_key"],
+                        blocked_query_text=row["blocked_query_text"],
+                        blocking_query_text=row["blocking_query_text"],
+                        blocked_duration_ms=float(row["blocked_duration_ms"]) if row["blocked_duration_ms"] is not None else None,
+                        details={
+                            "blocked_pid": row["blocked_pid"],
+                            "blocking_pid": row["blocking_pid"],
+                            "wait_event_type": row["wait_event_type"],
+                            "wait_event": row["wait_event"],
+                            "locktype": row["locktype"],
+                            "blocked_user": row["blocked_user"],
+                            "blocking_user": row["blocking_user"],
+                            "blocked_application": row["blocked_application"],
+                            "blocking_application": row["blocking_application"],
+                            "blocked_client_host": row["blocked_client_host"],
+                            "blocking_client_host": row["blocking_client_host"],
+                        },
+                    )
+                )
+            return results
+        finally:
+            await conn.close()
+
+    async def collect_deadlocks(self, params: InstanceConnectionParams, *, since: datetime | None) -> list[DeadlockRow]:
+        """PostgreSQL MVP: no deadlock history source (see capabilities.deadlock_history)."""
+        _ = params, since
+        return []
 
     async def collect_wait_sampling_history(self, params: InstanceConnectionParams, *, since: datetime | None) -> WaitSamplingHistoryBatch:
         """Pull `pg_wait_sampling_history` rows newer than `since` (Faza 1 element 1, richer source).

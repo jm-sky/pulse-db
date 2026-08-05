@@ -137,3 +137,40 @@ class PlanChangesResponse(BaseModel):
     instanceId: str
     since: datetime
     changes: list[PlanChangeItemResponse]
+
+
+class BlockingEventResponse(BaseModel):
+    id: str
+    detectedAt: datetime
+    blockingQueryId: str | None = None
+    blockedQueryId: str | None = None
+    blockedDurationMs: float | None = None
+    details: dict
+
+
+class BlockingEventsResponse(BaseModel):
+    instanceId: str
+    since: datetime
+    events: list[BlockingEventResponse]
+
+
+class DeadlockEventSummaryResponse(BaseModel):
+    id: str
+    detectedAt: datetime
+    victimQueryId: str | None = None
+    victimProcessId: str | None = None
+    hasXml: bool
+
+
+class DeadlockEventsResponse(BaseModel):
+    instanceId: str
+    since: datetime
+    events: list[DeadlockEventSummaryResponse]
+
+
+class DeadlockEventDetailResponse(BaseModel):
+    id: str
+    instanceId: str
+    detectedAt: datetime
+    victimQueryId: str | None = None
+    details: dict

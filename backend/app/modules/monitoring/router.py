@@ -13,6 +13,11 @@ from . import period_comparison as pc
 from . import repository
 from . import waits_timeline as wt
 from .schemas import (
+    BlockingEventResponse,
+    BlockingEventsResponse,
+    DeadlockEventDetailResponse,
+    DeadlockEventsResponse,
+    DeadlockEventSummaryResponse,
     MonitoredInstanceListResponse,
     MonitoredInstanceResponse,
     PeriodComparisonSummaryResponse,
@@ -330,4 +335,96 @@ async def get_plan_detail(
         planBody=detail.plan_body,
         firstSeen=detail.first_seen,
         lastSeen=detail.last_seen,
+    )
+
+
+@router.get(
+    "/instances/{instance_id}/blocking",
+    response_model=BlockingEventsResponse,
+    summary="List recent blocking events",
+    description="Active lock-chain snapshots written by the blocking collector tick.",
+)
+async def list_blocking(
+    instance_id: str,
+    _: CurrentUser,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    since: datetime = Query(description="Return events detected at or after this timestamp"),
+) -> BlockingEventsResponse:
+    if not await repository.instance_exists(db, instance_id=instance_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Monitored instance not found")
+
+    rows = await repository.list_blocking_events(db, instance_id=instance_id, since=since)
+    return BlockingEventsResponse(
+        instanceId=instance_id,
+        since=since,
+        events=[
+            BlockingEventResponse(
+                id=row.id,
+                detectedAt=row.detected_at,
+                blockingQueryId=row.blocking_query_id,
+                blockedQueryId=row.blocked_query_id,
+                blockedDurationMs=row.blocked_duration_ms,
+                details=row.details,
+            )
+            for row in rows
+        ],
+    )
+
+
+@router.get(
+    "/instances/{instance_id}/deadlocks",
+    response_model=DeadlockEventsResponse,
+    summary="List recent deadlock events",
+    description="Deadlocks drained from SQL Server system_health (PostgreSQL: empty in MVP).",
+)
+async def list_deadlocks(
+    instance_id: str,
+    _: CurrentUser,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    since: datetime = Query(description="Return events detected at or after this timestamp"),
+) -> DeadlockEventsResponse:
+    if not await repository.instance_exists(db, instance_id=instance_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Monitored instance not found")
+
+    rows = await repository.list_deadlock_events(db, instance_id=instance_id, since=since)
+    return DeadlockEventsResponse(
+        instanceId=instance_id,
+        since=since,
+        events=[
+            DeadlockEventSummaryResponse(
+                id=row.id,
+                detectedAt=row.detected_at,
+                victimQueryId=row.victim_query_id,
+                victimProcessId=row.details.get("victim_process_id") if isinstance(row.details, dict) else None,
+                hasXml=bool(row.details.get("xml")) if isinstance(row.details, dict) else False,
+            )
+            for row in rows
+        ],
+    )
+
+
+@router.get(
+    "/instances/{instance_id}/deadlocks/{event_id}",
+    response_model=DeadlockEventDetailResponse,
+    summary="Export one deadlock event (including XML)",
+)
+async def get_deadlock(
+    instance_id: str,
+    event_id: str,
+    _: CurrentUser,
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> DeadlockEventDetailResponse:
+    if not await repository.instance_exists(db, instance_id=instance_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Monitored instance not found")
+
+    row = await repository.get_deadlock_event(db, instance_id=instance_id, event_id=event_id)
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Deadlock event not found")
+
+    return DeadlockEventDetailResponse(
+        id=row.id,
+        instanceId=row.instance_id,
+        detectedAt=row.detected_at,
+        victimQueryId=row.victim_query_id,
+        details=row.details,
     )

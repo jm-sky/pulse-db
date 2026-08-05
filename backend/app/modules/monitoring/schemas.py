@@ -97,3 +97,43 @@ class WaitsTimelineResponse(BaseModel):
     start: datetime
     end: datetime
     series: list[WaitsTimelineSeriesResponse]
+
+
+class QueryPlanItemResponse(BaseModel):
+    planHash: str
+    planFormat: str
+    firstSeen: datetime
+    lastSeen: datetime
+
+
+class QueryPlansListResponse(BaseModel):
+    instanceId: str
+    queryId: str
+    isPlanChange: bool
+    plans: list[QueryPlanItemResponse]
+
+
+class QueryPlanDetailResponse(BaseModel):
+    instanceId: str
+    queryId: str
+    planHash: str
+    planFormat: str
+    planBody: str
+    firstSeen: datetime
+    lastSeen: datetime
+
+
+class PlanChangeItemResponse(BaseModel):
+    queryId: str
+    planHash: str
+    planFormat: str
+    firstSeen: datetime
+    queryText: str | None = None
+    planCount: int
+    isPlanChange: bool
+
+
+class PlanChangesResponse(BaseModel):
+    instanceId: str
+    since: datetime
+    changes: list[PlanChangeItemResponse]

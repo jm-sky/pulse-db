@@ -7,6 +7,9 @@ repository database.
 
 from __future__ import annotations
 
+import json
+import logging
+import re
 from dataclasses import dataclass
 from datetime import datetime
 
@@ -18,9 +21,15 @@ from ..engine_adapter import (
     EngineAdapter,
     EngineCapabilities,
     InstanceConnectionParams,
+    QueryPlanRow,
     QueryStatRow,
     TrivialSample,
 )
+
+logger = logging.getLogger(__name__)
+
+# Multi-statement text is unsafe to feed to EXPLAIN as a single command.
+_MULTI_STATEMENT_RE = re.compile(r";\s*\S")
 
 # Extensions relevant to capability detection (ADR §1, §4 vision, roadmap Phase 0a spike).
 _RELEVANT_EXTENSIONS = ("pg_stat_statements", "pg_wait_sampling", "hypopg")
@@ -196,6 +205,58 @@ class PostgresEngineAdapter(EngineAdapter):
         finally:
             await conn.close()
 
+    async def collect_query_plans(self, params: InstanceConnectionParams, *, top_n: int = 20) -> list[QueryPlanRow]:
+        """Estimated plans via ``EXPLAIN (FORMAT JSON)`` for top-N by total_exec_time.
+
+        Never ``EXPLAIN ANALYZE`` (would execute the statement). Per-query
+        permission/syntax failures are skipped -- the monitor account often
+        lacks SELECT on application schemas (see docs/grants.md); that must
+        not abort the whole tick.
+        """
+        conn = await self._connect(params)
+        try:
+            installed = await conn.fetchval("SELECT count(*) FROM pg_extension WHERE extname = 'pg_stat_statements'")
+            if not installed:
+                return []
+
+            limit = max(1, int(top_n))
+            candidates = await conn.fetch(
+                """
+                SELECT
+                    s.queryid::text AS engine_query_key,
+                    s.query AS normalized_text
+                FROM pg_stat_statements s
+                JOIN pg_database d ON d.oid = s.dbid
+                WHERE d.datname = current_database()
+                  AND s.queryid IS NOT NULL
+                  AND s.query IS NOT NULL
+                  AND s.query <> '<insufficient privilege>'
+                ORDER BY s.total_exec_time DESC
+                LIMIT $1
+                """,
+                limit,
+            )
+
+            results: list[QueryPlanRow] = []
+            for row in candidates:
+                query_text = row["normalized_text"]
+                if not query_text or not _is_explainable(query_text):
+                    continue
+                plan_body = await _explain_json(conn, query_text)
+                if plan_body is None:
+                    continue
+                results.append(
+                    QueryPlanRow(
+                        engine_query_key=row["engine_query_key"],
+                        normalized_text=query_text,
+                        plan_format="json",
+                        plan_body=plan_body,
+                    )
+                )
+            return results
+        finally:
+            await conn.close()
+
     async def collect_wait_sampling_history(self, params: InstanceConnectionParams, *, since: datetime | None) -> WaitSamplingHistoryBatch:
         """Pull `pg_wait_sampling_history` rows newer than `since` (Faza 1 element 1, richer source).
 
@@ -255,3 +316,40 @@ class PostgresEngineAdapter(EngineAdapter):
             )
         finally:
             await conn.close()
+
+
+def _is_explainable(query_text: str) -> bool:
+    """Reject text we will not feed to EXPLAIN as a single command."""
+    stripped = query_text.strip()
+    if not stripped:
+        return False
+    if stripped.upper().startswith("EXPLAIN"):
+        return False
+    if _MULTI_STATEMENT_RE.search(stripped):
+        return False
+    return True
+
+
+async def _explain_json(conn: asyncpg.Connection, query_text: str) -> str | None:
+    """Run ``EXPLAIN (FORMAT JSON)``; return canonical JSON text or None on failure.
+
+    The statement text comes from ``pg_stat_statements`` on the same instance
+    (not an API client). Still skip on any error -- permission denied is the
+    common case when the monitor role lacks SELECT on app tables.
+    """
+    try:
+        # EXPLAIN does not accept the subject as a bind parameter; the text is
+        # already filtered by `_is_explainable`.
+        rows = await conn.fetch(f"EXPLAIN (FORMAT JSON) {query_text}")
+    except Exception as exc:  # noqa: BLE001 -- skip this query, keep the tick
+        logger.debug("EXPLAIN skipped: %s", exc)
+        return None
+    if not rows:
+        return None
+    # asyncpg returns the JSON plan as a string or already-decoded list/dict.
+    raw = rows[0][0]
+    if raw is None:
+        return None
+    if isinstance(raw, str):
+        return raw
+    return json.dumps(raw, separators=(",", ":"), ensure_ascii=False)

@@ -159,8 +159,10 @@ lokalnym PostgreSQL 16** — `verification needed` (wymaga uruchomionego
 
 ## Co zostaje
 
-- **Elementy 3–5, 7 Fazy 1** (plany wykonania, blokady/deadlocki jako
+- **Elementy 4–5, 7 Fazy 1** (blokady/deadlocki jako
   zdarzenia, indeksy, baseline sezonowy percentylowy) — nie zaczęte.
+- **Element 3 (plany)** — ✅ zaimplementowane; szczegóły:
+  [2026-08-05-query-plans.md](2026-08-05-query-plans.md).
 - **Query Store jako źródło historii poza plan cache** — capability
   wykrywane, kolektor nadal na `dm_exec_query_stats` (jak
   `pg_stat_statements`). Osobna decyzja / iteracja.

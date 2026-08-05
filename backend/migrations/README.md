@@ -28,6 +28,7 @@ Uzasadnienie: [ADR modelu danych](../../docs/research/2026-07-30-data-model.md) 
 | `070` | `query_stat_cursor` (kursor kumulatywnych liczników `pg_stat_statements` per zapytanie, do liczenia delt) + `collector_run.kind` (rozróżnienie tick'ów o różnej kadencji dla poprawnego gap-detection) | [plan Fazy 1](../../docs/plans/2026-07-30-phase1-diagnostic-core.md) |
 | `071` | `wait_sampling_cursor` (watermark per instancja dla `pg_wait_sampling_history`) + `collector_run.kind` rozszerzone o `wait_sampling_history` | [plan Fazy 1](../../docs/plans/2026-07-30-phase1-diagnostic-core.md) — sekcja "richer source" |
 | `072` | Rollupy: `ash_1m`, `ash_1h`, `query_stat_1h` (proste tabele, top-N+other) + `rollup_cursor` (watermark per instancja × rodzaj rollupu) | [plan rollupów](../../docs/plans/2026-07-31-rollups.md) — Faza 0 element 7, [ADR modelu danych](../../docs/research/2026-07-30-data-model.md) §6 |
+| `073` | `collector_run.kind` rozszerzone o `query_plans` (tick planów wykonania; wymiary `plan_text`/`query_plan` już w 068) | [plan planów](../../docs/plans/2026-08-05-query-plans.md) — Faza 1 element 3 |
 
 Skok numeracji `002` → `066` jest zamierzony i odziedziczony z boilerplate'u
 (rodzina ops-monitor / gear-stack) — migracje domen, których PulseDB nie ma,

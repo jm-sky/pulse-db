@@ -27,6 +27,7 @@ from ..engine_adapter import (
     EngineAdapter,
     EngineCapabilities,
     InstanceConnectionParams,
+    QueryPlanRow,
     QueryStatRow,
     TrivialSample,
 )
@@ -100,6 +101,34 @@ CROSS APPLY sys.dm_exec_sql_text(qs.sql_handle) AS st
 WHERE qs.execution_count > 0
   AND qs.query_hash IS NOT NULL
   AND (st.dbid IS NULL OR st.dbid = 0 OR st.dbid = DB_ID())
+"""
+
+# Batch TOP-N with plan XML in one round-trip (unlike sql-monitor's per-handle
+# fetch). Same query_hash may appear more than once with different plan_handles
+# -- each distinct plan body is a separate QueryPlanRow for change detection.
+_QUERY_PLANS_SQL_TEMPLATE = """
+SELECT TOP ({top_n})
+    CONVERT(VARCHAR(34), qs.query_hash, 1) AS engine_query_key,
+    SUBSTRING(
+        st.text,
+        (qs.statement_start_offset / 2) + 1,
+        (
+            (CASE qs.statement_end_offset
+                WHEN -1 THEN DATALENGTH(st.text)
+                ELSE qs.statement_end_offset
+             END - qs.statement_start_offset) / 2
+        ) + 1
+    ) AS normalized_text,
+    CAST(qp.query_plan AS NVARCHAR(MAX)) AS plan_body
+FROM sys.dm_exec_query_stats AS qs WITH (NOLOCK)
+CROSS APPLY sys.dm_exec_sql_text(qs.sql_handle) AS st
+CROSS APPLY sys.dm_exec_query_plan(qs.plan_handle) AS qp
+WHERE qs.execution_count > 0
+  AND qs.query_hash IS NOT NULL
+  AND qs.plan_handle IS NOT NULL
+  AND qp.query_plan IS NOT NULL
+  AND (st.dbid IS NULL OR st.dbid = 0 OR st.dbid = DB_ID())
+ORDER BY qs.total_elapsed_time DESC
 """
 
 
@@ -261,6 +290,47 @@ def _collect_query_stats_sync(params: InstanceConnectionParams) -> list[QuerySta
     return result
 
 
+def _collect_query_plans_sync(params: InstanceConnectionParams, *, top_n: int = 20) -> list[QueryPlanRow]:
+    """Cached plan XML for top-N queries by total_elapsed_time (Phase 1 element 3).
+
+    One batch query with ``CROSS APPLY dm_exec_query_plan`` -- avoids N
+    round-trips per plan_handle (sql-monitor's pattern). VIEW SERVER STATE
+    is enough; no extra grants beyond the Phase 0 minimum.
+    """
+    limit = max(1, int(top_n))
+    sql = _QUERY_PLANS_SQL_TEMPLATE.format(top_n=limit)
+    with _connect(params) as conn, conn.cursor() as cur:
+        cur.execute(sql)
+        rows = _fetch_dicts(cur)
+
+    result: list[QueryPlanRow] = []
+    for row in rows:
+        engine_query_key = str(row["engine_query_key"] or "")
+        if not engine_query_key or engine_query_key.upper() == "NULL":
+            continue
+        normalized_text = row["normalized_text"]
+        if normalized_text is None:
+            continue
+        normalized_text = str(normalized_text).replace("\x00", "")
+        if not normalized_text:
+            continue
+        plan_body = row["plan_body"]
+        if plan_body is None:
+            continue
+        plan_body = str(plan_body).replace("\x00", "")
+        if not plan_body:
+            continue
+        result.append(
+            QueryPlanRow(
+                engine_query_key=engine_query_key,
+                normalized_text=normalized_text,
+                plan_format="xml",
+                plan_body=plan_body,
+            )
+        )
+    return result
+
+
 class SqlServerEngineAdapter(EngineAdapter):
     engine = Engine.SQLSERVER
 
@@ -276,6 +346,9 @@ class SqlServerEngineAdapter(EngineAdapter):
     async def collect_query_stats(self, params: InstanceConnectionParams) -> list[QueryStatRow]:
         return await asyncio.to_thread(_collect_query_stats_sync, params)
 
+    async def collect_query_plans(self, params: InstanceConnectionParams, *, top_n: int = 20) -> list[QueryPlanRow]:
+        return await asyncio.to_thread(_collect_query_plans_sync, params, top_n=top_n)
+
 
 # Re-exported for tests that need to patch the sync entry points without
 # reaching into module-private names.
@@ -285,4 +358,5 @@ __all__ = [
     "_collect_trivial_sample_sync",
     "_collect_active_sessions_sync",
     "_collect_query_stats_sync",
+    "_collect_query_plans_sync",
 ]

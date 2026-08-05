@@ -48,13 +48,30 @@ TO PUBLIC` na swoje trzy widoki (`pg_wait_sampling_current/_history/_profile`)
 w skrypcie instalacyjnym rozszerzenia (`pg_wait_sampling--1.1.sql`) — czytelne
 dla **każdej** zalogowanej roli, nie tylko `pg_monitor`.
 
+### Opcjonalnie: plany wykonania (Faza 1 element 3)
+
+`EXPLAIN (FORMAT JSON)` wymaga uprawnień do planowania zapytania — zwykle
+`SELECT` na tabelach aplikacji w monitorowanym schemacie. Bez tego tick
+`query_plans` **pomija** zapytania z błędem uprawnień i nie pada.
+
+```sql
+-- Przykład: odczyt schematu aplikacji pod estymowane plany (nigdy EXPLAIN ANALYZE)
+GRANT USAGE ON SCHEMA public TO pulsedb_monitor;
+GRANT SELECT ON ALL TABLES IN SCHEMA public TO pulsedb_monitor;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO pulsedb_monitor;
+```
+
+SQL Server: `VIEW SERVER STATE` wystarcza do `dm_exec_query_plan` — bez
+dodatkowego grantu względem minimum z sekcji poniżej.
+
 ### Czego kolektor **nie** dostaje
 
 - Brak `SUPERUSER`, brak członkostwa w `pg_signal_backend` poza tym, co daje
   `pg_monitor` (Faza 3 `KILL SESSION` wymaga osobnych, wyżej uprzywilejowanych
   poświadczeń akcji — §3.6 vision, celowo oddzielone od konta zbierającego).
-- Brak `SELECT`/`INSERT`/`UPDATE`/`DELETE` na tabelach domenowych klienta —
-  PulseDB nie czyta danych aplikacji, tylko metadane wykonania.
+- Brak `INSERT`/`UPDATE`/`DELETE` na tabelach domenowych klienta — PulseDB nie
+  modyfikuje danych aplikacji. Opcjonalny `SELECT` (wyżej) jest tylko pod
+  estymowane plany, nie pod odczyt treści biznesowej w produkcie.
 
 ## SQL Server
 
@@ -125,4 +142,5 @@ zielonym statusie kolektora zwykle oznacza idle bazę, nie błąd połączenia
 
 - [roadmap.md](roadmap.md) §3 (Faza 0, element 9)
 - [plans/2026-07-30-phase0-foundation.md](plans/2026-07-30-phase0-foundation.md)
+- [plans/2026-08-05-query-plans.md](plans/2026-08-05-query-plans.md) — opcjonalny SELECT pod EXPLAIN
 - [`backend/app/modules/monitoring/adapters/postgres_adapter.py`](../backend/app/modules/monitoring/adapters/postgres_adapter.py), [`sqlserver_adapter.py`](../backend/app/modules/monitoring/adapters/sqlserver_adapter.py) — źródło `_RELEVANT_ROLES`/`_RELEVANT_PERMISSIONS` powyżej

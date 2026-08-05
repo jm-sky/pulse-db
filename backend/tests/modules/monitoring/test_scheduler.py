@@ -22,12 +22,28 @@ class TestTicksForEngine:
     def test_postgresql_gets_all_ticks(self) -> None:
         names = {spec.name for spec in _ticks_for_engine(Engine.POSTGRESQL)}
 
-        assert names == {"trivial", "session_sample", "query_stats", "rollup_ash_1m", "rollup_ash_1h", "rollup_query_stat_1h"}
+        assert names == {
+            "trivial",
+            "session_sample",
+            "query_stats",
+            "query_plans",
+            "rollup_ash_1m",
+            "rollup_ash_1h",
+            "rollup_query_stat_1h",
+        }
 
     def test_sqlserver_gets_all_ticks(self) -> None:
         names = {spec.name for spec in _ticks_for_engine(Engine.SQLSERVER)}
 
-        assert names == {"trivial", "session_sample", "query_stats", "rollup_ash_1m", "rollup_ash_1h", "rollup_query_stat_1h"}
+        assert names == {
+            "trivial",
+            "session_sample",
+            "query_stats",
+            "query_plans",
+            "rollup_ash_1m",
+            "rollup_ash_1h",
+            "rollup_query_stat_1h",
+        }
 
 
 @dataclass

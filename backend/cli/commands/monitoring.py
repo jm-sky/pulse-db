@@ -216,6 +216,29 @@ def collect_query_stats(
         console.print(f"[yellow]Gap detected:[/yellow] {result.gap_seconds:.1f}s since expected previous run")
 
 
+@monitoring_app.command("collect-query-plans")
+def collect_query_plans(
+    instance_id: str = typer.Argument(..., help="Instance ID from list-instances"),
+    interval_ms: int = typer.Option(600_000, "--interval-ms", help="Expected cadence, used for gap detection"),
+    top_n: int = typer.Option(20, "--top-n", help="Top-N queries by total time to fetch plans for"),
+) -> None:
+    """Run one tick: fetch top-N execution plans into plan_text/query_plan (Phase 1 element 3).
+
+    A new (query_id, plan_hash) row is a plan-change event. See docs/plans/2026-08-05-query-plans.md.
+    """
+    from app.modules.monitoring.collector import run_query_plans_collection
+
+    result = asyncio.run(run_query_plans_collection(instance_id, interval_ms=interval_ms, top_n=top_n))
+
+    if result.status == "ok":
+        console.print(f"[bold green]OK[/bold green] plans_seen={result.plans_seen} " f"plans_new={result.plans_new} overhead_ms={result.overhead_ms:.2f}")
+    else:
+        console.print(f"[bold red]ERROR[/bold red] {result.error_message}")
+
+    if result.gap_detected:
+        console.print(f"[yellow]Gap detected:[/yellow] {result.gap_seconds:.1f}s since expected previous run")
+
+
 @monitoring_app.command("sample-wait-history")
 def sample_wait_history(
     instance_id: str = typer.Argument(..., help="Instance ID from list-instances"),

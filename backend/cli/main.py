@@ -69,8 +69,13 @@ COMMAND_GROUPS = {
             "collect": "Run one trivial collector tick against an instance",
             "sample-sessions": "Run one ASH tick: active sessions with wait attribution (PostgreSQL)",
             "collect-query-stats": "Run one tick: pg_stat_statements deltas into query_stat_delta (PostgreSQL)",
+            "collect-query-plans": "Run one tick: top-N execution plans into plan_text/query_plan",
             "sample-wait-history": "Richer-source ASH tick from pg_wait_sampling_history, opt-in (PostgreSQL)",
             "partitions-maintain": "Create upcoming partitions, drop expired ones",
+            "rollup-ash-1m": "Roll closed 1-minute session_sample buckets into ash_1m",
+            "rollup-ash-1h": "Roll closed 1-hour ash_1m buckets into ash_1h",
+            "rollup-query-stats-1h": "Roll closed 1-hour query_stat_delta buckets into query_stat_1h",
+            "run-scheduler": "Run collector/rollup ticks continuously until stopped",
         },
     },
 }

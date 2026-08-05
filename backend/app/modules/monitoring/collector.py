@@ -19,6 +19,9 @@ the "richer source" from roadmap element 1 ("pg_wait_sampling opcjonalnie
 gdy obecne, z komunikatem o różnicy jakości"). PostgreSQL only, and not
 folded into `run_session_sample_collection`'s default path -- see its
 docstring for why (volume, not just an easy quality upgrade).
+
+`run_query_plans_collection` is Phase 1 element 3 (docs/plans/2026-08-05-query-plans.md):
+top-N execution plans into `plan_text`/`query_plan` on a 10-minute cadence.
 """
 
 from __future__ import annotations
@@ -558,4 +561,97 @@ async def run_wait_sampling_history_collection(instance_id: str) -> WaitSampling
         gap_seconds=gap_seconds,
         error_message=error_message,
         note=note,
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class QueryPlansResult:
+    run_id: str
+    status: str
+    overhead_ms: float
+    plans_seen: int | None
+    plans_new: int | None
+    gap_detected: bool
+    gap_seconds: float | None
+    error_message: str | None
+
+
+async def run_query_plans_collection(
+    instance_id: str,
+    *,
+    interval_ms: int = 600_000,
+    top_n: int = 20,
+) -> QueryPlansResult:
+    """One query-plans tick (Phase 1 element 3): top-N plans -> plan_text / query_plan.
+
+    A new `(query_id, plan_hash)` row is the plan-change event itself (ADR §3).
+    Re-seeing the same plan only bumps `last_seen`. Cadence is intentionally
+    coarser than query_stats (10 min default) -- plans are large and EXPLAIN /
+    dm_exec_query_plan is heavier than counter reads.
+    """
+    async with AsyncSessionLocal() as session:
+        params = await repository.get_connection_params(session, instance_id)
+        last_finished_at, _last_interval_ms = await repository.get_last_collector_run(session, instance_id, kind="query_plans")
+
+        started_at = datetime.now(UTC)
+        gap_detected, gap_seconds = _detect_gap(started_at=started_at, last_finished_at=last_finished_at, interval_ms=interval_ms)
+
+        clock_start = time.perf_counter()
+        status = "ok"
+        error_message: str | None = None
+        plans_seen: int | None = None
+        plans_new: int | None = None
+
+        try:
+            plan_rows = await _adapter_for(params.engine).collect_query_plans(params, top_n=top_n)
+            plans_seen = 0
+            plans_new = 0
+
+            for row in plan_rows:
+                plans_seen += 1
+                normalized = repository.normalize_query_text(row.normalized_text)
+                query_id = await repository.upsert_query(
+                    session,
+                    instance_id=instance_id,
+                    engine=params.engine,
+                    engine_query_key=row.engine_query_key,
+                    normalized_text=normalized,
+                )
+                plan_hash = await repository.upsert_plan_text(session, plan_format=row.plan_format, plan_body=row.plan_body)
+                upsert = await repository.upsert_query_plan(session, query_id=query_id, plan_hash=plan_hash)
+                if upsert.is_new:
+                    plans_new += 1
+        except Exception as exc:  # collector must never crash the scheduler on a bad instance
+            status = "error"
+            error_message = str(exc)
+            await session.rollback()
+
+        overhead_ms = (time.perf_counter() - clock_start) * 1000
+        finished_at = datetime.now(UTC)
+
+        run_id = await repository.insert_collector_run(
+            session,
+            instance_id=instance_id,
+            kind="query_plans",
+            started_at=started_at,
+            finished_at=finished_at,
+            status=status,
+            interval_ms=interval_ms,
+            overhead_ms=overhead_ms,
+            clock_offset_ms=None,
+            gap_detected=gap_detected,
+            gap_seconds=gap_seconds,
+            error_message=error_message,
+        )
+        await session.commit()
+
+    return QueryPlansResult(
+        run_id=run_id,
+        status=status,
+        overhead_ms=overhead_ms,
+        plans_seen=plans_seen,
+        plans_new=plans_new,
+        gap_detected=gap_detected,
+        gap_seconds=gap_seconds,
+        error_message=error_message,
     )

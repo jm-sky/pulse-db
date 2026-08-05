@@ -3,13 +3,14 @@
 from datetime import datetime
 from typing import Annotated, Literal
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.modules.auth.dependencies import CurrentUser
 
 from . import period_comparison as pc
+from . import repository
 from . import waits_timeline as wt
 from .schemas import (
     MonitoredInstanceListResponse,
@@ -17,8 +18,13 @@ from .schemas import (
     PeriodComparisonSummaryResponse,
     PeriodMetricsResponse,
     PeriodWindowResponse,
+    PlanChangeItemResponse,
+    PlanChangesResponse,
     QueryPeriodComparisonItem,
     QueryPeriodComparisonResponse,
+    QueryPlanDetailResponse,
+    QueryPlanItemResponse,
+    QueryPlansListResponse,
     WaitPeriodComparisonItem,
     WaitPeriodMetricsResponse,
     WaitsTimelinePointResponse,
@@ -87,10 +93,7 @@ async def list_instances(
     "/instances/{instance_id}/waits/timeline",
     response_model=WaitsTimelineResponse,
     summary="Wait time timeline for an instance",
-    description=(
-        "Stacked-bar source data: per-bucket wait seconds by wait class from "
-        "`ash_1m` (≤24h default) or `ash_1h` rollups."
-    ),
+    description=("Stacked-bar source data: per-bucket wait seconds by wait class from " "`ash_1m` (≤24h default) or `ash_1h` rollups."),
 )
 async def get_instance_waits_timeline(
     instance_id: str,
@@ -137,11 +140,7 @@ async def get_instance_waits_timeline(
     "/instances/{instance_id}/queries/period-comparison",
     response_model=QueryPeriodComparisonResponse,
     summary="Compare query stats between two periods",
-    description=(
-        "Baseline level 1: compare `query_stat_1h` rollups for each query between "
-        "a baseline window and a current window. Returns per-query deltas and "
-        "flags regressions where average time increased."
-    ),
+    description=("Baseline level 1: compare `query_stat_1h` rollups for each query between " "a baseline window and a current window. Returns per-query deltas and " "flags regressions where average time increased."),
 )
 async def compare_query_periods(
     instance_id: str,
@@ -193,10 +192,7 @@ async def compare_query_periods(
     "/instances/{instance_id}/period-comparison/summary",
     response_model=PeriodComparisonSummaryResponse,
     summary="Compare instance totals and wait classes between two periods",
-    description=(
-        "Baseline level 1: instance-wide query totals from `query_stat_1h` plus "
-        "wait-class breakdown from `ash_1h` for baseline vs current windows."
-    ),
+    description=("Baseline level 1: instance-wide query totals from `query_stat_1h` plus " "wait-class breakdown from `ash_1h` for baseline vs current windows."),
 )
 async def compare_period_summary(
     instance_id: str,
@@ -235,4 +231,103 @@ async def compare_period_summary(
             )
             for row in result.waits
         ],
+    )
+
+
+@router.get(
+    "/instances/{instance_id}/queries/plan-changes",
+    response_model=PlanChangesResponse,
+    summary="List recent plan-change events",
+    description=("Queries that gained a new `query_plan` row (first_seen >= since). " "`isPlanChange` is true when the query already had at least one other plan " "(genuine change vs first-ever capture)."),
+)
+async def list_plan_changes(
+    instance_id: str,
+    _: CurrentUser,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    since: datetime = Query(description="Return plans first seen at or after this timestamp"),
+) -> PlanChangesResponse:
+    if not await repository.instance_exists(db, instance_id=instance_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Monitored instance not found")
+
+    rows = await repository.list_plan_changes(db, instance_id=instance_id, since=since)
+    return PlanChangesResponse(
+        instanceId=instance_id,
+        since=since,
+        changes=[
+            PlanChangeItemResponse(
+                queryId=row.query_id,
+                planHash=row.plan_hash,
+                planFormat=row.plan_format,
+                firstSeen=row.first_seen,
+                queryText=row.query_text,
+                planCount=row.plan_count,
+                isPlanChange=row.plan_count > 1,
+            )
+            for row in rows
+        ],
+    )
+
+
+@router.get(
+    "/instances/{instance_id}/queries/{query_id}/plans",
+    response_model=QueryPlansListResponse,
+    summary="List execution plans for a query",
+    description=("Stored plans for one query (`plan_text` via `query_plan`). " "`isPlanChange` is true when more than one distinct plan_hash exists."),
+)
+async def list_plans_for_query(
+    instance_id: str,
+    query_id: str,
+    _: CurrentUser,
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> QueryPlansListResponse:
+    if not await repository.instance_exists(db, instance_id=instance_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Monitored instance not found")
+    if not await repository.query_belongs_to_instance(db, instance_id=instance_id, query_id=query_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Query not found on this instance")
+
+    plans = await repository.list_query_plans(db, query_id=query_id)
+    return QueryPlansListResponse(
+        instanceId=instance_id,
+        queryId=query_id,
+        isPlanChange=len(plans) > 1,
+        plans=[
+            QueryPlanItemResponse(
+                planHash=p.plan_hash,
+                planFormat=p.plan_format,
+                firstSeen=p.first_seen,
+                lastSeen=p.last_seen,
+            )
+            for p in plans
+        ],
+    )
+
+
+@router.get(
+    "/instances/{instance_id}/queries/{query_id}/plans/{plan_hash}",
+    response_model=QueryPlanDetailResponse,
+    summary="Export one execution plan body",
+    description="Full XML/JSON plan body for export (no built-in visualizer — vision §5).",
+)
+async def get_plan_detail(
+    instance_id: str,
+    query_id: str,
+    plan_hash: str,
+    _: CurrentUser,
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> QueryPlanDetailResponse:
+    if not await repository.instance_exists(db, instance_id=instance_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Monitored instance not found")
+
+    detail = await repository.get_query_plan_detail(db, instance_id=instance_id, query_id=query_id, plan_hash=plan_hash)
+    if detail is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Plan not found")
+
+    return QueryPlanDetailResponse(
+        instanceId=instance_id,
+        queryId=query_id,
+        planHash=detail.plan_hash,
+        planFormat=detail.plan_format,
+        planBody=detail.plan_body,
+        firstSeen=detail.first_seen,
+        lastSeen=detail.last_seen,
     )

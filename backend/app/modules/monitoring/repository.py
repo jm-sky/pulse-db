@@ -1008,3 +1008,190 @@ async def get_latest_clock_offset_ms(session: AsyncSession, *, instance_id: str)
     )
     row = result.first()
     return row.clock_offset_ms if row else None
+
+
+# --- Phase 1 element 3: execution plans + plan-change detection ------------
+
+
+def compute_plan_hash(plan_body: str) -> str:
+    """Content-addressed identity for `plan_text` (same shape as `norm_hash`)."""
+    return hashlib.sha256(plan_body.encode("utf-8")).hexdigest()
+
+
+@dataclass(frozen=True, slots=True)
+class QueryPlanUpsertResult:
+    plan_hash: str
+    is_new: bool
+
+
+@dataclass(frozen=True, slots=True)
+class QueryPlanListItem:
+    plan_hash: str
+    plan_format: str
+    first_seen: datetime
+    last_seen: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class QueryPlanDetail:
+    plan_hash: str
+    plan_format: str
+    plan_body: str
+    first_seen: datetime
+    last_seen: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class PlanChangeRow:
+    query_id: str
+    plan_hash: str
+    plan_format: str
+    first_seen: datetime
+    query_text: str | None
+    plan_count: int
+
+
+async def upsert_plan_text(session: AsyncSession, *, plan_format: str, plan_body: str) -> str:
+    """Insert `plan_text` by content hash; return `plan_hash`. Idempotent."""
+    plan_hash = compute_plan_hash(plan_body)
+    await session.execute(
+        text("""
+            INSERT INTO plan_text (plan_hash, plan_format, plan_body)
+            VALUES (:plan_hash, :plan_format, :plan_body)
+            ON CONFLICT (plan_hash) DO NOTHING
+            """),
+        {"plan_hash": plan_hash, "plan_format": plan_format, "plan_body": plan_body},
+    )
+    return plan_hash
+
+
+async def upsert_query_plan(session: AsyncSession, *, query_id: str, plan_hash: str) -> QueryPlanUpsertResult:
+    """Link query ↔ plan. New `(query_id, plan_hash)` is the plan-change event (ADR §3)."""
+    existing = await session.execute(
+        text("""
+            SELECT 1 FROM query_plan
+            WHERE query_id = :query_id AND plan_hash = :plan_hash
+            """),
+        {"query_id": query_id, "plan_hash": plan_hash},
+    )
+    is_new = existing.first() is None
+
+    await session.execute(
+        text("""
+            INSERT INTO query_plan (query_id, plan_hash)
+            VALUES (:query_id, :plan_hash)
+            ON CONFLICT (query_id, plan_hash)
+                DO UPDATE SET last_seen = now()
+            """),
+        {"query_id": query_id, "plan_hash": plan_hash},
+    )
+    return QueryPlanUpsertResult(plan_hash=plan_hash, is_new=is_new)
+
+
+async def list_query_plans(session: AsyncSession, *, query_id: str) -> list[QueryPlanListItem]:
+    result = await session.execute(
+        text("""
+            SELECT qp.plan_hash, pt.plan_format, qp.first_seen, qp.last_seen
+            FROM query_plan qp
+            JOIN plan_text pt ON pt.plan_hash = qp.plan_hash
+            WHERE qp.query_id = :query_id
+            ORDER BY qp.first_seen ASC
+            """),
+        {"query_id": query_id},
+    )
+    return [
+        QueryPlanListItem(
+            plan_hash=row.plan_hash,
+            plan_format=row.plan_format,
+            first_seen=row.first_seen,
+            last_seen=row.last_seen,
+        )
+        for row in result
+    ]
+
+
+async def get_query_plan_detail(
+    session: AsyncSession,
+    *,
+    instance_id: str,
+    query_id: str,
+    plan_hash: str,
+) -> QueryPlanDetail | None:
+    result = await session.execute(
+        text("""
+            SELECT qp.plan_hash, pt.plan_format, pt.plan_body, qp.first_seen, qp.last_seen
+            FROM query_plan qp
+            JOIN plan_text pt ON pt.plan_hash = qp.plan_hash
+            JOIN query q ON q.id = qp.query_id
+            WHERE qp.query_id = :query_id
+              AND qp.plan_hash = :plan_hash
+              AND q.instance_id = :instance_id
+            """),
+        {"query_id": query_id, "plan_hash": plan_hash, "instance_id": instance_id},
+    )
+    row = result.first()
+    if row is None:
+        return None
+    return QueryPlanDetail(
+        plan_hash=row.plan_hash,
+        plan_format=row.plan_format,
+        plan_body=row.plan_body,
+        first_seen=row.first_seen,
+        last_seen=row.last_seen,
+    )
+
+
+async def query_belongs_to_instance(session: AsyncSession, *, instance_id: str, query_id: str) -> bool:
+    result = await session.execute(
+        text("""
+            SELECT 1 FROM query
+            WHERE id = :query_id AND instance_id = :instance_id
+            """),
+        {"query_id": query_id, "instance_id": instance_id},
+    )
+    return result.first() is not None
+
+
+async def list_plan_changes(
+    session: AsyncSession,
+    *,
+    instance_id: str,
+    since: datetime,
+) -> list[PlanChangeRow]:
+    """Plans whose `first_seen` is at/after `since` for queries on this instance.
+
+    Includes `plan_count` so callers can tell a first-ever plan from a genuine
+    change (count > 1).
+    """
+    result = await session.execute(
+        text("""
+            SELECT
+                qp.query_id AS query_id,
+                qp.plan_hash AS plan_hash,
+                pt.plan_format AS plan_format,
+                qp.first_seen AS first_seen,
+                qt.normalized_text AS query_text,
+                (
+                    SELECT COUNT(*)::int FROM query_plan qp2 WHERE qp2.query_id = qp.query_id
+                ) AS plan_count
+            FROM query_plan qp
+            JOIN plan_text pt ON pt.plan_hash = qp.plan_hash
+            JOIN query q ON q.id = qp.query_id
+            JOIN query_text qt ON qt.norm_hash = q.norm_hash
+            WHERE q.instance_id = :instance_id
+              AND qp.first_seen >= :since
+            ORDER BY qp.first_seen DESC
+            """),
+        {"instance_id": instance_id, "since": since},
+    )
+    return [
+        PlanChangeRow(
+            query_id=row.query_id,
+            plan_hash=row.plan_hash,
+            plan_format=row.plan_format,
+            first_seen=row.first_seen,
+            query_text=row.query_text,
+            plan_count=row.plan_count,
+        )
+        for row in result
+    ]

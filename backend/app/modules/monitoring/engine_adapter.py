@@ -12,6 +12,9 @@ Phase 1 element 1 (active session sampler) and element 2 (query stats with
 history) add `collect_active_sessions` / `collect_query_stats` below --
 both PostgreSQL and SQL Server implemented and validated against live
 instances (docs/plans/2026-07-30-phase1-diagnostic-core.md).
+
+Phase 1 element 3 adds `collect_query_plans` (execution plans + plan-change
+detection via new `query_plan` rows -- docs/plans/2026-08-05-query-plans.md).
 """
 
 from __future__ import annotations
@@ -20,6 +23,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import StrEnum
+from typing import Literal
 
 
 class Engine(StrEnum):
@@ -122,6 +126,23 @@ class QueryStatRow:
     shared_blks_written: int
 
 
+@dataclass(frozen=True, slots=True)
+class QueryPlanRow:
+    """One execution plan for a query (Phase 1 element 3).
+
+    `plan_format` is `json` (PostgreSQL EXPLAIN) or `xml` (SQL Server
+    ``dm_exec_query_plan``). No visualizer of our own (vision §5) -- the
+    body is stored once in `plan_text` and exported via API. Plan-change
+    detection is a new `(query_id, plan_hash)` row in `query_plan`, not a
+    separate event table (ADR §3).
+    """
+
+    engine_query_key: str
+    normalized_text: str
+    plan_format: Literal["xml", "json"]
+    plan_body: str
+
+
 class EngineAdapter(ABC):
     """One adapter implementation per supported engine."""
 
@@ -149,3 +170,13 @@ class EngineAdapter(ABC):
         """Snapshot cumulative per-query stats (Phase 1 element 2). Empty list if the
         engine's stats source (pg_stat_statements / Query Store) isn't enabled --
         never an error, since it's an optional capability (see docs/grants.md)."""
+
+    @abstractmethod
+    async def collect_query_plans(self, params: InstanceConnectionParams, *, top_n: int = 20) -> list[QueryPlanRow]:
+        """Fetch execution plans for the top-N queries by total time (Phase 1 element 3).
+
+        Empty list when the engine source is unavailable (no pg_stat_statements,
+        empty plan cache) -- never an error for a missing optional capability.
+        Per-query failures (permission denied on EXPLAIN, vanished plan handle)
+        skip that row; they must not fail the whole batch.
+        """

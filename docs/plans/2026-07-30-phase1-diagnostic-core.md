@@ -153,9 +153,9 @@ rollupami, które już są (vision §5 poziom 1).
 
 ### Walidacja
 
-Testy jednostkowe (mockowane repozytorium, 9 testów) plus **walidacja E2E na
-lokalnym PostgreSQL 16** — `verification needed` (wymaga uruchomionego
-środowiska z historią rollupów).
+Testy jednostkowe (mockowane repozytorium, 9 testów) plus **walidacja E2E**:
+live UI Queries (2026-08-06) na rollupach `query_stat_1h` (m.in. S2017 z flagami
+regresji) — endpoint `period-comparison` działa end-to-end.
 
 ## Co zostaje
 

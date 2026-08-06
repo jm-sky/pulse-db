@@ -1,6 +1,6 @@
 # Plan: Web UI — Queries (Faza 2, wczesny slice)
 
-**Data:** 2026-08-05 · **Status:** `verification needed`
+**Data:** 2026-08-05 · **Status:** `done`
 **Kontekst:** [roadmap.md](../roadmap.md) §5 element 4 · [vision](../vision.md) § ekran Queries · [shell](2026-08-04-desktop-ui-shell.md)
 **Poprzednik API:** [Faza 1 element 6 — period comparison](2026-07-30-phase1-diagnostic-core.md) · [plany wykonania](2026-08-05-query-plans.md)
 
@@ -112,8 +112,12 @@ Zmiana zakładki = `router.push` na sibling path; Explorer podświetla aktywny w
 
 - Scheduler / ticki: `collect-query-stats`, `rollup-query-stats-1h` (oraz granty
   `pg_stat_statements` / DMV — [grants.md](../grants.md)).
-- Preferencja: przed merge UI potwierdzić E2E `period-comparison` na lokalnym PG
-  (status elementu 6).
+
+## Manual QA (2026-08-06)
+
+- Live ranking + badge `Regresja` (m.in. S2017), filtr regresji — OK.
+- Waits ↔ Queries zachowuje `instanceId` — OK.
+- i18n: nazwy ekranów EN (`Queries`); chrome / kolumny PL.
 
 ## Co zostaje po MVP
 

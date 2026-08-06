@@ -1,6 +1,6 @@
 # Idea: IDE-style / Desktop-style UI
 
-**Status:** `verification needed` · **Shell slice:** [research](../research/2026-08-04-desktop-ui-shell.md) · [plan](../plans/2026-08-04-desktop-ui-shell.md) (live API + ECharts Waits)
+**Status:** `done` · **Shell slice:** [research](../research/2026-08-04-desktop-ui-shell.md) · [plan](../plans/2026-08-04-desktop-ui-shell.md) (live API + ECharts Waits + Settings w shellu)
 
 ## Opis
 

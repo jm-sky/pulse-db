@@ -64,11 +64,11 @@ Issue 003 zostaje źródłem kierunku; ta notatka zamyka **slice „shell"**, ni
 
 **Zasady:**
 
-1. Chrome jest **stały** dla tras domenowych; settings/admin mogą zostać na `AuthenticatedLayout` (SaaS) do czasu migracji.
+1. Chrome jest **stały** dla tras domenowych. Settings: od 2026-08-06 na `DesktopWorkspaceLayout` (Admin/Profile nadal `AuthenticatedLayout`).
 2. Workspace **edge-to-edge** w panelu treści — zero „karty w karcie".
 3. Explorer wybiera **instancję + widok**; treść nie jest osobną nawigacją typu marketingowy dashboard.
 4. Placeholder Waits w shellu używa **mock danych** — REST monitoringu jeszcze nie istnieje (tylko CLI) → **superseded 2026-08-05**: live `GET .../instances` + `.../waits/timeline` + ECharts ([plan](../plans/2026-08-04-desktop-ui-shell.md)).
-
+5. **i18n (2026-08-06):** chrome PL, terminy diagnostyczne EN (`Waits`, `Queries`, `Estate`) — jak DPA/Datadog dla ICP DBA.
 ---
 
 ## 5. Uzasadnienie stylu Desktop / IDE

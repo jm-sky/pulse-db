@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n'
-import AuthenticatedLayout from '@/layouts/AuthenticatedLayout.vue'
+import DesktopWorkspaceLayout from '@/modules/monitoring/components/DesktopWorkspaceLayout.vue'
 import DeleteAccountCard from '@/modules/settings/components/DeleteAccountCard.vue'
 import OAuthConnectionsCard from '../components/OAuthConnectionsCard.vue'
 import PreferencesSettingsCard from '../components/PreferencesSettingsCard.vue'
@@ -10,10 +10,10 @@ const { t } = useI18n()
 </script>
 
 <template>
-  <AuthenticatedLayout>
-    <div class="max-w-4xl mx-auto space-y-6">
+  <DesktopWorkspaceLayout>
+    <div class="mx-auto max-w-4xl space-y-6 p-6">
       <div class="space-y-1">
-        <h1 class="text-3xl font-bold tracking-tight">
+        <h1 class="text-2xl font-semibold tracking-tight">
           {{ t('settings.page.title') }}
         </h1>
         <p class="text-sm text-muted-foreground">
@@ -22,21 +22,12 @@ const { t } = useI18n()
       </div>
 
       <div class="space-y-6">
-        <!-- Core Preferences Settings -->
         <PreferencesSettingsCard />
-
-        <!-- Security Settings (2FA) -->
         <SecuritySettingsCard />
-
-        <!-- OAuth Connections -->
         <OAuthConnectionsCard />
-
-        <!-- Additional Settings from other modules (via slot) -->
         <slot name="after" />
-
         <DeleteAccountCard />
       </div>
     </div>
-  </AuthenticatedLayout>
+  </DesktopWorkspaceLayout>
 </template>
-

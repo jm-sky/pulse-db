@@ -16,7 +16,7 @@ export const monitoringPl = {
       title: 'Explorer',
       estate: 'Estate',
       waits: 'Waits',
-      queries: 'Zapytania',
+      queries: 'Queries',
       instance: 'Instancja',
       loading: 'Ładowanie instancji…',
       loadError: 'Nie udało się załadować instancji',
@@ -25,12 +25,13 @@ export const monitoringPl = {
     },
     tabs: {
       waits: 'Waits',
-      queries: 'Zapytania',
+      queries: 'Queries',
     },
     status: {
       collectorOk: 'Kolektor OK',
       collectorDegraded: 'Kolektor zdegradowany',
       collectorUnknown: 'Kolektor nieznany',
+      lastOneHour: 'Ostatnia 1 godzina',
       engine: {
         postgresql: 'PostgreSQL',
         sqlserver: 'SQL Server',
@@ -45,7 +46,7 @@ export const monitoringPl = {
       groupNavigate: 'Nawigacja',
       groupActions: 'Akcje',
       openWaits: 'Otwórz Waits',
-      openQueries: 'Otwórz Zapytania',
+      openQueries: 'Otwórz Queries',
       openSettings: 'Otwórz ustawienia',
       openProfile: 'Otwórz profil',
       focusExplorer: 'Fokus na Explorer',
@@ -64,7 +65,7 @@ export const monitoringPl = {
       drillHint: 'Klik w segment słupka → drill-in (wkrótce).',
     },
     queries: {
-      title: 'Zapytania',
+      title: 'Queries',
       subtitle: 'Ranking zapytań z porównaniem okresów (baseline poziom 1)',
       rangeLabel: 'Ostatnie 24 h vs poprzednie 24 h',
       loadingInstances: 'Ładowanie instancji…',

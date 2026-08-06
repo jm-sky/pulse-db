@@ -1,18 +1,20 @@
 import { computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { useRoute } from 'vue-router'
 import { useMonitoringInstancesQuery } from '@/modules/monitoring/composables/useMonitoringQueries'
 import type { MonitoredInstance } from '@/modules/monitoring/types/monitoring.type'
 
-const timeRangeLabel = 'Last 1 hour'
-
 export function useWorkspaceContext() {
   const route = useRoute()
+  const { t } = useI18n()
   const {
     data: instancesData,
     isPending: isInstancesPending,
     isError: isInstancesError,
     isFetching: isInstancesFetching,
   } = useMonitoringInstancesQuery()
+
+  const timeRangeLabel = computed(() => t('monitoring.status.lastOneHour'))
 
   const routeInstanceId = computed(() => {
     const id = route.params.instanceId

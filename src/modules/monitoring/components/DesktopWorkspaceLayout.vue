@@ -8,9 +8,10 @@ import WorkspaceTabBar from '@/modules/monitoring/components/WorkspaceTabBar.vue
 
 withDefaults(
   defineProps<{
-    activeTab?: 'waits' | 'queries'
+    /** Omit when the workspace is not a Waits/Queries view (e.g. Settings). */
+    activeTab?: 'waits' | 'queries' | null
   }>(),
-  { activeTab: 'waits' },
+  { activeTab: null },
 )
 
 const explorerOpen = ref(true)

@@ -31,6 +31,7 @@ export const monitoringEn = {
       collectorOk: 'Collector OK',
       collectorDegraded: 'Collector degraded',
       collectorUnknown: 'Collector unknown',
+      lastOneHour: 'Last 1 hour',
       engine: {
         postgresql: 'PostgreSQL',
         sqlserver: 'SQL Server',

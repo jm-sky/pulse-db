@@ -7,7 +7,7 @@ import { useWorkspaceContext } from '@/modules/monitoring/composables/useWorkspa
 import { MonitoringRoutePaths } from '@/modules/monitoring/routes'
 
 const props = defineProps<{
-  activeTab: 'waits' | 'queries'
+  activeTab?: 'waits' | 'queries' | null
 }>()
 
 const { t } = useI18n()

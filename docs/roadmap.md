@@ -285,20 +285,21 @@ Największa nierozwiązana luka projektu (§6 vision: *sam AGPLv3 nie generuje a
 | Faza 1, element 7 | Nie zaczęte |
 | Faza 0a (spike'e, wywiady, PRD) | Nie zaczęte — patrz §2; teza estate mieszanego nadal 🟡 |
 | Desktop UI shell + Queries | ✅ Manual QA 2026-08-06; Settings w shellu; i18n chrome PL / terminy EN. [shell](plans/2026-08-04-desktop-ui-shell.md) · [Queries](plans/2026-08-05-queries-ui.md) |
+| Desktop UI Indexes + Instance + Plans drawer | ✅ Zaimplementowane 2026-08-06 — `verification needed` (live QA PG + S2017). [plan](plans/2026-08-06-diagnostic-ui-screens.md) |
 | Dev monitoring targets | `pulse-db-local`, `sql-monitor-postgres`, `taxorder-ksef-local` — `cli monitoring register-dev-instances` / `scripts/monitoring/` |
 
 ### Rekomendacja — w tej kolejności
 
-1. **Live E2E** indeksów + blocking/deadlocks + planów (lokalny PG + S2017) — domknięcie statusów planów 3–5.
+1. **Live QA** nowego UI (Indexes / Instance / Plans drawer) na lokalnym PG + S2017 — domknięcie [planu](plans/2026-08-06-diagnostic-ui-screens.md) i statusów backend 3–5.
 2. **Faza 1, element 7** (baseline sezonowy percentylowy) — wymaga kilku tygodni historii w rollupach.
-3. **Faza 2 follow-upy UI:** drill-in Waits→Queries, time picker, detail drawer zapytań / plan-changes; Profil/Admin na shellu.
+3. **Faza 2 follow-upy UI:** drill-in Waits→Queries, wspólny time picker; Profil/Admin na shellu.
 4. **Faza 0a** (wywiady z DBA, PRD) — równolegle; ADR wykresów: ECharts już w shellu Waits ([research](research/2026-07-30-chart-library.md)).
 
 ### Co NIE jest zalecane teraz
 
 - Automatyczne (nie opt-in) przełączenie na `pg_wait_sampling` jako domyślne źródło — wymaga decyzji o budżecie retencji/wolumenu.
 - Query Store / parse logów PG pod historię deadlocków przed elementem 7.
-- Tłumaczenie terminów diagnostycznych (`Waits`, `Queries`, `Estate`) na PL.
+- Tłumaczenie terminów diagnostycznych (`Waits`, `Queries`, `Estate`, `Indexes`, `Instance`) na PL.
 
 ---
 

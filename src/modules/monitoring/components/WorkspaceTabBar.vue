@@ -5,9 +5,10 @@ import { useRouter } from 'vue-router'
 import { cn } from '@/lib/utils'
 import { useWorkspaceContext } from '@/modules/monitoring/composables/useWorkspaceContext'
 import { MonitoringRoutePaths } from '@/modules/monitoring/routes'
+import type { WorkspaceTab } from '@/modules/monitoring/types/monitoring.type'
 
 const props = defineProps<{
-  activeTab?: 'waits' | 'queries' | null
+  activeTab?: WorkspaceTab | null
 }>()
 
 const { t } = useI18n()
@@ -17,14 +18,23 @@ const { selectedInstanceId } = useWorkspaceContext()
 const tabs = computed(() => [
   { id: 'waits' as const, label: t('monitoring.tabs.waits') },
   { id: 'queries' as const, label: t('monitoring.tabs.queries') },
+  { id: 'indexes' as const, label: t('monitoring.tabs.indexes') },
+  { id: 'instance' as const, label: t('monitoring.tabs.instance') },
 ])
 
-function openTab(tab: 'waits' | 'queries') {
+function pathForTab(tab: WorkspaceTab, instanceId: string) {
+  const paths: Record<WorkspaceTab, string> = {
+    indexes: MonitoringRoutePaths.instanceIndexes(instanceId),
+    instance: MonitoringRoutePaths.instanceDetail(instanceId),
+    queries: MonitoringRoutePaths.instanceQueries(instanceId),
+    waits: MonitoringRoutePaths.instanceWaits(instanceId),
+  }
+  return paths[tab]
+}
+
+function openTab(tab: WorkspaceTab) {
   if (!selectedInstanceId.value || tab === props.activeTab) return
-  const path = tab === 'waits'
-    ? MonitoringRoutePaths.instanceWaits(selectedInstanceId.value)
-    : MonitoringRoutePaths.instanceQueries(selectedInstanceId.value)
-  void router.push(path)
+  void router.push(pathForTab(tab, selectedInstanceId.value))
 }
 </script>
 

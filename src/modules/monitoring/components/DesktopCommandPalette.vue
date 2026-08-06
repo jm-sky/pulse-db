@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { useMagicKeys, whenever } from '@vueuse/core'
-import { Activity, Search, Settings, User } from 'lucide-vue-next'
+import { Activity, Database, HardDrive, Search, Settings, User } from 'lucide-vue-next'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 import {
@@ -40,12 +40,15 @@ async function run(path: string) {
   await router.push(path)
 }
 
-function openQueries() {
+function openForInstance(
+  withId: (id: string) => string,
+  fallback: string,
+) {
   if (selectedInstanceId.value) {
-    void run(MonitoringRoutePaths.instanceQueries(selectedInstanceId.value))
+    void run(withId(selectedInstanceId.value))
     return
   }
-  void run(MonitoringRoutePaths.queries)
+  void run(fallback)
 }
 </script>
 
@@ -63,9 +66,26 @@ function openQueries() {
           <Activity />
           <span>{{ t('monitoring.command.openWaits') }}</span>
         </CommandItem>
-        <CommandItem value="queries" @select="() => openQueries()">
+        <CommandItem
+          value="queries"
+          @select="() => openForInstance(MonitoringRoutePaths.instanceQueries, MonitoringRoutePaths.queries)"
+        >
           <Search />
           <span>{{ t('monitoring.command.openQueries') }}</span>
+        </CommandItem>
+        <CommandItem
+          value="indexes"
+          @select="() => openForInstance(MonitoringRoutePaths.instanceIndexes, MonitoringRoutePaths.indexes)"
+        >
+          <HardDrive />
+          <span>{{ t('monitoring.command.openIndexes') }}</span>
+        </CommandItem>
+        <CommandItem
+          value="instance"
+          @select="() => openForInstance(MonitoringRoutePaths.instanceDetail, MonitoringRoutePaths.instance)"
+        >
+          <Database />
+          <span>{{ t('monitoring.command.openInstance') }}</span>
         </CommandItem>
         <CommandItem value="settings" @select="() => run(SettingsRoutePaths.settings)">
           <Settings />

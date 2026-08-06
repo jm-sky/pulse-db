@@ -12,7 +12,11 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { cn } from '@/lib/utils'
-import { useQueryPeriodComparisonQuery } from '@/modules/monitoring/composables/useMonitoringQueries'
+import QueryPlanDrawer from '@/modules/monitoring/components/QueryPlanDrawer.vue'
+import {
+  usePlanChangesQuery,
+  useQueryPeriodComparisonQuery,
+} from '@/modules/monitoring/composables/useMonitoringQueries'
 import { useWorkspaceContext } from '@/modules/monitoring/composables/useWorkspaceContext'
 import {
   formatCalls,
@@ -20,6 +24,7 @@ import {
   formatMs,
   truncateSql,
 } from '@/modules/monitoring/utils/formatQueryMetrics'
+import type { QueryPeriodComparisonItem } from '@/modules/monitoring/types/monitoring.type'
 
 const props = defineProps<{
   instanceId: string
@@ -29,6 +34,8 @@ const { t } = useI18n()
 const { selectedInstance } = useWorkspaceContext()
 
 const regressionsOnly = ref(false)
+const drawerOpen = ref(false)
+const selectedQuery = ref<QueryPeriodComparisonItem | null>(null)
 
 const comparisonParams = computed(() => {
   const currentEnd = new Date()
@@ -45,17 +52,33 @@ const comparisonParams = computed(() => {
   }
 })
 
+const planChangesSince = computed(() => subHours(new Date(), 24).toISOString())
+
 const instanceIdRef = toRef(props, 'instanceId')
 const { data, isPending, isError, refetch, isFetching } = useQueryPeriodComparisonQuery(
   instanceIdRef,
   comparisonParams,
 )
+const { data: planChangesData } = usePlanChangesQuery(instanceIdRef, planChangesSince)
 
 const rows = computed(() => data.value?.queries ?? [])
 const hasRows = computed(() => rows.value.length > 0)
 
+const planChangeByQueryId = computed(() => {
+  const map = new Map<string, boolean>()
+  for (const change of planChangesData.value?.changes ?? []) {
+    if (change.isPlanChange) map.set(change.queryId, true)
+  }
+  return map
+})
+
 async function refresh() {
   await refetch()
+}
+
+function openQuery(row: QueryPeriodComparisonItem) {
+  selectedQuery.value = row
+  drawerOpen.value = true
 }
 </script>
 
@@ -127,7 +150,7 @@ async function refresh() {
               <TableHead class="text-right">
                 {{ t('monitoring.queries.columns.avgDelta') }}
               </TableHead>
-              <TableHead class="w-24 text-right">
+              <TableHead class="w-28 text-right">
                 {{ t('monitoring.queries.columns.regression') }}
               </TableHead>
             </TableRow>
@@ -136,7 +159,11 @@ async function refresh() {
             <TableRow
               v-for="row in rows"
               :key="row.queryId"
-              :class="cn(row.isRegression && 'bg-destructive/5')"
+              :class="cn(
+                'cursor-pointer',
+                row.isRegression && 'bg-destructive/5',
+              )"
+              @click="openQuery(row)"
             >
               <TableCell class="max-w-0 font-mono text-xs">
                 <span
@@ -144,6 +171,12 @@ async function refresh() {
                   :title="row.queryText ?? row.queryId"
                 >
                   {{ truncateSql(row.queryText) }}
+                </span>
+                <span
+                  v-if="planChangeByQueryId.get(row.queryId)"
+                  class="mt-1 inline-flex rounded bg-chart-4/20 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-chart-4"
+                >
+                  {{ t('monitoring.queries.plan.changeBadge') }}
                 </span>
               </TableCell>
               <TableCell class="text-right tabular-nums text-xs">
@@ -175,5 +208,11 @@ async function refresh() {
         </Table>
       </div>
     </div>
+
+    <QueryPlanDrawer
+      v-model:open="drawerOpen"
+      :instance-id="instanceId"
+      :query="selectedQuery"
+    />
   </div>
 </template>

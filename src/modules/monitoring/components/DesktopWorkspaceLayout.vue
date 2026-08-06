@@ -5,11 +5,12 @@ import DesktopMenuBar from '@/modules/monitoring/components/DesktopMenuBar.vue'
 import DesktopStatusBar from '@/modules/monitoring/components/DesktopStatusBar.vue'
 import InstanceExplorer from '@/modules/monitoring/components/InstanceExplorer.vue'
 import WorkspaceTabBar from '@/modules/monitoring/components/WorkspaceTabBar.vue'
+import type { WorkspaceTab } from '@/modules/monitoring/types/monitoring.type'
 
 withDefaults(
   defineProps<{
-    /** Omit when the workspace is not a Waits/Queries view (e.g. Settings). */
-    activeTab?: 'waits' | 'queries' | null
+    /** Omit when the workspace is not a diagnostic view (e.g. Settings). */
+    activeTab?: WorkspaceTab | null
   }>(),
   { activeTab: null },
 )

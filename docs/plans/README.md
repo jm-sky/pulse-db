@@ -20,6 +20,7 @@ Plany implementacji funkcji i większych zmian.
 | [2026-08-05-blocking-deadlocks.md](2026-08-05-blocking-deadlocks.md) | Faza 1 element 4: blocking (PG+SS) + deadlocki system_health (SS) | `in progress` |
 | [2026-08-05-index-analysis.md](2026-08-05-index-analysis.md) | Faza 1 element 5: inwentarz indeksów + unused/missing DDL | `in progress` |
 | [2026-08-05-queries-ui.md](2026-08-05-queries-ui.md) | Faza 2: Web UI Queries (ranking + regresja z period-comparison) | `done` |
+| [2026-08-06-diagnostic-ui-screens.md](2026-08-06-diagnostic-ui-screens.md) | Faza 2: Plans drawer + Indexes + Instance (blocking/deadlocks) | `verification needed` |
 
 When adding a new plan: create `YYYY-MM-DD-slug.md`, add a row here.
 

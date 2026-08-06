@@ -6,7 +6,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { cn } from '@/lib/utils'
 import { useWorkspaceContext } from '@/modules/monitoring/composables/useWorkspaceContext'
 import { MonitoringRoutePaths } from '@/modules/monitoring/routes'
-import type { MonitoredInstance } from '@/modules/monitoring/types/monitoring.type'
+import type { MonitoredInstance, WorkspaceTab } from '@/modules/monitoring/types/monitoring.type'
 
 const { t } = useI18n()
 const route = useRoute()
@@ -34,9 +34,12 @@ const visibleInstances = computed(() =>
   instances.value.filter(instance => instance.isActive),
 )
 
-const activeView = computed<'waits' | 'queries'>(() =>
-  route.path.includes('/queries') ? 'queries' : 'waits',
-)
+const activeView = computed<WorkspaceTab>(() => {
+  if (route.path.includes('/queries')) return 'queries'
+  if (route.path.includes('/indexes')) return 'indexes'
+  if (route.path.endsWith('/instance')) return 'instance'
+  return 'waits'
+})
 
 function toggleInstance(id: string) {
   expanded.value[id] = !expanded.value[id]
@@ -50,6 +53,16 @@ function openWaits(instance: MonitoredInstance) {
 function openQueries(instance: MonitoredInstance) {
   expanded.value[instance.id] = true
   void router.push(MonitoringRoutePaths.instanceQueries(instance.id))
+}
+
+function openIndexes(instance: MonitoredInstance) {
+  expanded.value[instance.id] = true
+  void router.push(MonitoringRoutePaths.instanceIndexes(instance.id))
+}
+
+function openInstance(instance: MonitoredInstance) {
+  expanded.value[instance.id] = true
+  void router.push(MonitoringRoutePaths.instanceDetail(instance.id))
 }
 
 function statusClass(status: MonitoredInstance['collectorStatus']) {
@@ -140,6 +153,22 @@ function statusClass(status: MonitoredInstance['collectorStatus']) {
                 @click="openQueries(instance)"
               >
                 {{ t('monitoring.explorer.queries') }}
+              </button>
+              <button
+                type="button"
+                class="flex w-full items-center rounded-sm px-2 py-0.5 text-left hover:bg-sidebar-accent"
+                :class="selectedInstanceId === instance.id && activeView === 'indexes' && 'bg-sidebar-accent/80'"
+                @click="openIndexes(instance)"
+              >
+                {{ t('monitoring.explorer.indexes') }}
+              </button>
+              <button
+                type="button"
+                class="flex w-full items-center rounded-sm px-2 py-0.5 text-left hover:bg-sidebar-accent"
+                :class="selectedInstanceId === instance.id && activeView === 'instance' && 'bg-sidebar-accent/80'"
+                @click="openInstance(instance)"
+              >
+                {{ t('monitoring.explorer.instance') }}
               </button>
             </div>
           </div>

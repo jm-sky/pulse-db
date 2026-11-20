@@ -169,10 +169,16 @@ async def _verify_user_token(
             except ImportError:
                 # 2FA module not available, skip check
                 pass
+            except HTTPException:
+                raise
             except Exception as e:
-                # If 2FA check fails, log but don't break the request
-                logger.warning(f"2FA verification check failed: {e}", exc_info=True)
-                # In production, you might want to be more strict here
+                # Fail closed: if the 2FA state cannot be determined, do not let a
+                # possibly password-only token through.
+                logger.error("2FA verification check failed: %s", e, exc_info=True)
+                raise HTTPException(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    detail="Unable to verify two-factor authentication state.",
+                ) from e
 
         return user
 
